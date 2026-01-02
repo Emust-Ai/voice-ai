@@ -1,0 +1,25 @@
+{
+  "name": "gpt-realtime-voice-agent",
+  "version": "1.0.0",
+  "description": "GPT Realtime Voice Agent with Twilio and Azure",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "fastify": "^4.25.2",
+    "@fastify/websocket": "^8.3.1",
+    "@fastify/formbody": "^7.4.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
