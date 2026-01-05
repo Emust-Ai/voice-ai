@@ -1,5 +1,7 @@
 import WebSocket from 'ws';
 import { OPENAI_CONFIG, VOICE_AGENT_INSTRUCTIONS } from '../config/openai.js';
+import { TOOLS } from '../config/tools.js';
+import { executeN8nTool } from '../services/n8nService.js';
 
 // Build Azure OpenAI Realtime WebSocket URL
 const getAzureRealtimeUrl = () => {
@@ -70,11 +72,64 @@ export function handleTwilioWebSocket(connection, logger) {
         instructions: VOICE_AGENT_INSTRUCTIONS,
         modalities: ['text', 'audio'],
         temperature: OPENAI_CONFIG.temperature,
+        tools: TOOLS,
+        tool_choice: 'auto',
       }
     };
 
     openAiWs.send(JSON.stringify(sessionConfig));
-    logger.info('Session configuration sent to OpenAI');
+    logger.info('Session configuration sent to OpenAI with tools');
+  };
+
+  // Handle tool calls from OpenAI and execute n8n webhooks
+  const handleToolCall = async (toolCall) => {
+    const { name, arguments: argsString, call_id } = toolCall;
+    
+    logger.info(`Tool call received: ${name} with call_id: ${call_id}`);
+    
+    try {
+      const args = JSON.parse(argsString);
+      logger.info(`Tool arguments: ${JSON.stringify(args)}`);
+      
+      // Execute the n8n tool
+      const result = await executeN8nTool(name, args, { callSid, streamSid });
+      
+      logger.info(`Tool ${name} result: ${JSON.stringify(result)}`);
+      
+      // Send the result back to OpenAI
+      const toolResponse = {
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: call_id,
+          output: JSON.stringify(result)
+        }
+      };
+      
+      openAiWs.send(JSON.stringify(toolResponse));
+      
+      // Trigger OpenAI to continue the response
+      openAiWs.send(JSON.stringify({ type: 'response.create' }));
+      
+    } catch (error) {
+      logger.error(`Error handling tool call ${name}:`, error);
+      
+      // Send error result back to OpenAI
+      const errorResponse = {
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: call_id,
+          output: JSON.stringify({ 
+            success: false, 
+            error: `Tool execution failed: ${error.message}` 
+          })
+        }
+      };
+      
+      openAiWs.send(JSON.stringify(errorResponse));
+      openAiWs.send(JSON.stringify({ type: 'response.create' }));
+    }
   };
 
   // Handle messages from OpenAI
@@ -137,6 +192,21 @@ export function handleTwilioWebSocket(connection, logger) {
                 }
               });
             }
+            // Handle function calls in response output
+            if (output.type === 'function_call') {
+              handleToolCall(output);
+            }
+          });
+        }
+        break;
+
+      case 'response.function_call_arguments.done':
+        // Handle function call when arguments are complete
+        if (message.name && message.call_id) {
+          handleToolCall({
+            name: message.name,
+            arguments: message.arguments,
+            call_id: message.call_id
           });
         }
         break;
