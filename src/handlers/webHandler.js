@@ -11,12 +11,14 @@ const getAzureRealtimeUrl = () => {
   return `wss://${endpoint}/openai/realtime?api-version=${apiVersion}&deployment=${deployment}`;
 };
 
-export function handleTwilioWebSocket(connection, logger) {
+export function handleWebBrowserWebSocket(connection, logger) {
   let openAiWs = null;
-  let streamSid = null;
-  let callSid = null;
+  let sessionId = `web-${Date.now()}`;
   let isOpenAiReady = false;
   let audioQueue = [];
+  let processedToolCalls = new Set(); // Track processed tool calls to prevent duplicates
+
+  logger.info(`Web browser client connected - Session: ${sessionId}`);
 
   // Connect to Azure OpenAI Realtime API
   const connectToOpenAI = () => {
@@ -30,7 +32,7 @@ export function handleTwilioWebSocket(connection, logger) {
     });
 
     openAiWs.on('open', () => {
-      logger.info('Connected to Azure OpenAI Realtime API');
+      logger.info('Connected to Azure OpenAI Realtime API (Web Client)');
       initializeSession();
     });
 
@@ -40,11 +42,13 @@ export function handleTwilioWebSocket(connection, logger) {
 
     openAiWs.on('error', (error) => {
       logger.error({ err: error, message: error.message }, 'OpenAI WebSocket error');
+      sendToClient({ type: 'error', message: 'OpenAI connection error' });
     });
 
     openAiWs.on('close', (code, reason) => {
       logger.info(`OpenAI WebSocket closed: ${code} - ${reason.toString()}`);
       isOpenAiReady = false;
+      sendToClient({ type: 'status', status: 'disconnected' });
     });
 
     openAiWs.on('unexpected-response', (request, response) => {
@@ -56,18 +60,19 @@ export function handleTwilioWebSocket(connection, logger) {
           statusMessage: response.statusMessage,
           body: body 
         }, 'Azure OpenAI connection rejected');
+        sendToClient({ type: 'error', message: 'Azure OpenAI connection rejected' });
       });
     });
   };
 
-  // Initialize OpenAI session with configuration
+  // Initialize OpenAI session with PCM16 audio format (for web browsers)
   const initializeSession = () => {
     const sessionConfig = {
       type: 'session.update',
       session: {
         turn_detection: { type: 'server_vad' },
-        input_audio_format: 'g711_ulaw',
-        output_audio_format: 'g711_ulaw',
+        input_audio_format: 'pcm16',  // Web browsers use PCM16
+        output_audio_format: 'pcm16', // Web browsers use PCM16
         voice: OPENAI_CONFIG.voice,
         instructions: VOICE_AGENT_INSTRUCTIONS,
         modalities: ['text', 'audio'],
@@ -78,25 +83,39 @@ export function handleTwilioWebSocket(connection, logger) {
     };
 
     openAiWs.send(JSON.stringify(sessionConfig));
-    logger.info('Session configuration sent to OpenAI with tools');
+    logger.info('Session configuration sent to OpenAI (Web Client - PCM16 format)');
   };
 
-  // Handle tool calls from OpenAI and execute n8n webhooks
+  // Send message to web client
+  const sendToClient = (message) => {
+    if (connection.socket.readyState === WebSocket.OPEN) {
+      connection.socket.send(JSON.stringify(message));
+    }
+  };
+
+  // Handle tool calls from OpenAI
   const handleToolCall = async (toolCall) => {
     const { name, arguments: argsString, call_id } = toolCall;
     
+    // Prevent duplicate tool calls
+    if (processedToolCalls.has(call_id)) {
+      logger.info(`Skipping duplicate tool call: ${name} with call_id: ${call_id}`);
+      return;
+    }
+    processedToolCalls.add(call_id);
+    
     logger.info(`Tool call received: ${name} with call_id: ${call_id}`);
+    sendToClient({ type: 'tool_call', name, status: 'executing' });
     
     try {
       const args = JSON.parse(argsString);
       logger.info(`Tool arguments: ${JSON.stringify(args)}`);
       
-      // Execute the n8n tool
-      const result = await executeN8nTool(name, args, { callSid, streamSid });
+      const result = await executeN8nTool(name, args, { sessionId });
       
       logger.info(`Tool ${name} result: ${JSON.stringify(result)}`);
+      sendToClient({ type: 'tool_call', name, status: 'completed', result });
       
-      // Send the result back to OpenAI
       const toolResponse = {
         type: 'conversation.item.create',
         item: {
@@ -107,14 +126,12 @@ export function handleTwilioWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(toolResponse));
-      
-      // Trigger OpenAI to continue the response
       openAiWs.send(JSON.stringify({ type: 'response.create' }));
       
     } catch (error) {
       logger.error(`Error handling tool call ${name}:`, error);
+      sendToClient({ type: 'tool_call', name, status: 'error', error: error.message });
       
-      // Send error result back to OpenAI
       const errorResponse = {
         type: 'conversation.item.create',
         item: {
@@ -136,54 +153,51 @@ export function handleTwilioWebSocket(connection, logger) {
   const handleOpenAiMessage = (message) => {
     switch (message.type) {
       case 'session.created':
-        logger.info('OpenAI session created');
+        logger.info('OpenAI session created (Web Client)');
         isOpenAiReady = true;
-        // Process any queued audio
         processAudioQueue();
         break;
 
       case 'session.updated':
-        logger.info('OpenAI session updated');
+        logger.info('OpenAI session updated (Web Client)');
         isOpenAiReady = true;
-        // Send initial greeting
+        sendToClient({ type: 'status', status: 'ready' });
         sendInitialGreeting();
         break;
 
       case 'response.audio.delta':
-        if (message.delta && streamSid) {
-          // Send audio back to Twilio
-          const audioMessage = {
-            event: 'media',
-            streamSid: streamSid,
-            media: {
-              payload: message.delta
-            }
-          };
-          connection.socket.send(JSON.stringify(audioMessage));
+        if (message.delta) {
+          // Send audio back to web client
+          sendToClient({
+            type: 'audio',
+            audio: message.delta
+          });
         }
         break;
 
       case 'response.audio.done':
         logger.info('OpenAI audio response complete');
+        sendToClient({ type: 'audio_done' });
         break;
 
       case 'input_audio_buffer.speech_started':
-        logger.info('User started speaking');
-        // Clear Twilio's audio queue when user interrupts
-        if (streamSid) {
-          connection.socket.send(JSON.stringify({
-            event: 'clear',
-            streamSid: streamSid
-          }));
-        }
-        // Cancel any ongoing OpenAI response when user interrupts
+        logger.info('User started speaking (Web Client)');
+        sendToClient({ type: 'speech_started' });
+        // Cancel any ongoing response when user interrupts
         if (openAiWs?.readyState === WebSocket.OPEN) {
           openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
         }
         break;
 
       case 'input_audio_buffer.speech_stopped':
-        logger.info('User stopped speaking');
+        logger.info('User stopped speaking (Web Client)');
+        sendToClient({ type: 'speech_stopped' });
+        break;
+
+      case 'response.text.delta':
+        if (message.delta) {
+          sendToClient({ type: 'text_delta', text: message.delta });
+        }
         break;
 
       case 'response.done':
@@ -192,20 +206,24 @@ export function handleTwilioWebSocket(connection, logger) {
             if (output.type === 'message' && output.content) {
               output.content.forEach(content => {
                 if (content.type === 'text') {
-                  logger.info(`Assistant: ${content.text}`);
+                  logger.info(`Assistant (Web): ${content.text}`);
+                  sendToClient({ type: 'transcript', role: 'assistant', text: content.text });
                 }
               });
             }
-            // Handle function calls in response output
-            if (output.type === 'function_call') {
-              handleToolCall(output);
-            }
+            // Note: function_call is handled by response.function_call_arguments.done
           });
+        }
+        sendToClient({ type: 'response_done' });
+        break;
+
+      case 'conversation.item.input_audio_transcription.completed':
+        if (message.transcript) {
+          sendToClient({ type: 'transcript', role: 'user', text: message.transcript });
         }
         break;
 
       case 'response.function_call_arguments.done':
-        // Handle function call when arguments are complete
         if (message.name && message.call_id) {
           handleToolCall({
             name: message.name,
@@ -217,14 +235,15 @@ export function handleTwilioWebSocket(connection, logger) {
 
       case 'error':
         logger.error('OpenAI error:', message.error);
+        sendToClient({ type: 'error', message: message.error?.message || 'Unknown error' });
         break;
 
       default:
-        logger.debug(`OpenAI message type: ${message.type}`);
+        logger.debug(`OpenAI message type (Web): ${message.type}`);
     }
   };
 
-  // Send initial greeting to start conversation
+  // Send initial greeting
   const sendInitialGreeting = () => {
     const greetingEvent = {
       type: 'response.create',
@@ -234,7 +253,7 @@ export function handleTwilioWebSocket(connection, logger) {
       }
     };
     openAiWs.send(JSON.stringify(greetingEvent));
-    logger.info('Initial greeting triggered');
+    logger.info('Initial greeting triggered (Web Client)');
   };
 
   // Process queued audio data
@@ -256,55 +275,53 @@ export function handleTwilioWebSocket(connection, logger) {
     }
   };
 
-  // Handle messages from Twilio
+  // Start connection to OpenAI immediately
+  connectToOpenAI();
+
+  // Handle messages from Web Client
   connection.socket.on('message', (data) => {
     try {
       const message = JSON.parse(data.toString());
 
-      switch (message.event) {
-        case 'connected':
-          logger.info('Twilio media stream connected');
-          connectToOpenAI();
-          break;
-
-        case 'start':
-          streamSid = message.start.streamSid;
-          callSid = message.start.callSid;
-          logger.info(`Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}`);
-          break;
-
-        case 'media':
+      switch (message.type) {
+        case 'audio':
           // Forward audio to OpenAI
           if (isOpenAiReady) {
-            sendAudioToOpenAI(message.media.payload);
+            sendAudioToOpenAI(message.audio);
           } else {
-            // Queue audio if OpenAI isn't ready yet
-            audioQueue.push(message.media.payload);
+            audioQueue.push(message.audio);
           }
           break;
 
-        case 'stop':
-          logger.info('Twilio stream stopped');
+        case 'ping':
+          sendToClient({ type: 'pong' });
+          break;
+
+        case 'end_session':
+          logger.info('Web client requested session end');
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.close();
+          }
           break;
 
         default:
-          logger.debug(`Twilio event: ${message.event}`);
+          logger.debug(`Web client event: ${message.type}`);
       }
     } catch (error) {
-      logger.error('Error processing Twilio message:', error);
+      logger.error('Error processing web client message:', error);
     }
   });
 
-  // Handle Twilio WebSocket close
+  // Handle WebSocket close
   connection.socket.on('close', () => {
-    logger.info('Twilio WebSocket closed');
+    logger.info('Web client WebSocket closed');
     if (openAiWs?.readyState === WebSocket.OPEN) {
       openAiWs.close();
     }
   });
 
-  // Handle Twilio WebSocket errors
+  // Handle WebSocket errors
   connection.socket.on('error', (error) => {
-    logger.error('Twilio WebSocket error:', error);
+    logger.error('Web client WebSocket error:', error);
   });
 }

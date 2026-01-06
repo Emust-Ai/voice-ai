@@ -1,20 +1,25 @@
 // n8n Tool Definitions for OpenAI Realtime API
 // Each tool corresponds to an n8n webhook workflow
 
+import dotenv from 'dotenv';
+dotenv.config();
+
 export const N8N_BASE_URL = process.env.N8N_WEBHOOK_URL || 'https://your-n8n-instance.com/webhook';
+
+console.log('N8N_BASE_URL configured as:', N8N_BASE_URL);
 
 // Tool definitions following OpenAI function calling schema
 export const TOOLS = [
   {
     type: 'function',
     name: 'station_verification',
-    description: 'Verify the status of a charging station. Returns whether the station is operative or inoperative.',
+    description: 'Verify the status of a charging station. Returns whether the station is operative or inoperative. Can search by station name, station ID, or area/location name.',
     parameters: {
       type: 'object',
       properties: {
         station_name: {
           type: 'string',
-          description: 'The name or ID of the charging station to verify'
+          description: 'The name, ID, or area/location of the charging station to verify (e.g., "Station Paris 15", "Carrefour Montreuil", "Zone Commerciale Bercy")'
         }
       },
       required: ['station_name']
@@ -52,7 +57,7 @@ export const TOOLS = [
       properties: {
         rfid_number: {
           type: 'string',
-          description: 'The RFID card number printed on the card'
+          description: 'The RFID card number printed on the card (can contain letters and numbers, e.g., ABC123 or 12AB34CD)'
         }
       },
       required: ['rfid_number']
@@ -68,9 +73,17 @@ export const TOOLS = [
         user_id: {
           type: 'string',
           description: 'The user ID to look up'
+        },
+        station_name: {
+          type: 'string',
+          description: 'The name or ID of the charging station (optional)'
+        },
+        connector_id: {
+          type: 'string',
+          description: 'The connector number (optional)'
         }
       },
-      required: ['user_id']
+      required: ['user_id', 'station_name', 'connector_id']
     }
   },
   {
@@ -96,30 +109,16 @@ export const TOOLS = [
         user_id: {
           type: 'string',
           description: 'The user ID for the charging session'
-        }
-      },
-      required: ['station_id', 'connector_id', 'action']
-    }
-  },
-  {
-    type: 'function',
-    name: 'credit_pay',
-    description: 'Initiate a credit card payment session for charging.',
-    parameters: {
-      type: 'object',
-      properties: {
-        station_id: {
-          type: 'string',
-          description: 'The charging station ID'
         },
-        connector_id: {
+        rfid_number: {
           type: 'string',
-          description: 'The connector number'
+          description: 'The RFID card number if applicable'
         }
       },
-      required: ['station_id', 'connector_id']
+      required: ['station_id', 'connector_id', 'action', 'rfid_number']
     }
   },
+
   {
     type: 'function',
     name: 'check_cdrs',
@@ -221,7 +220,6 @@ export const TOOL_ENDPOINTS = {
   verify_rfid: '/verify-rfid',
   get_rfid: '/get-rfid',
   remote_control: '/remote-control',
-  credit_pay: '/credit-pay',
   check_cdrs: '/check-cdrs',
   check_invoice: '/check-invoice',
   invoice_sending_agent: '/invoice-sending',

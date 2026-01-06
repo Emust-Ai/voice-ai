@@ -1,11 +1,18 @@
 import Fastify from 'fastify';
 import fastifyWs from '@fastify/websocket';
 import fastifyFormBody from '@fastify/formbody';
+import fastifyStatic from '@fastify/static';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { handleTwilioWebSocket } from './handlers/twilioHandler.js';
+import { handleWebBrowserWebSocket } from './handlers/webHandler.js';
 import { generateTwiML } from './utils/twiml.js';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const fastify = Fastify({ 
   logger: true,
@@ -16,8 +23,14 @@ const fastify = Fastify({
 await fastify.register(fastifyFormBody);
 await fastify.register(fastifyWs);
 
+// Serve static files (web client)
+await fastify.register(fastifyStatic, {
+  root: path.join(__dirname, '..', 'public'),
+  prefix: '/'
+});
+
 // Health check endpoint
-fastify.get('/', async (request, reply) => {
+fastify.get('/api/health', async (request, reply) => {
   return { 
     status: 'ok', 
     service: 'GPT Realtime Voice Agent',
@@ -52,6 +65,14 @@ fastify.register(async function (fastify) {
   });
 });
 
+// WebSocket endpoint for Web Browser clients
+fastify.register(async function (fastify) {
+  fastify.get('/web-stream', { websocket: true }, (connection, req) => {
+    fastify.log.info('Web Browser WebSocket connection established');
+    handleWebBrowserWebSocket(connection, fastify.log);
+  });
+});
+
 // Start server
 const start = async () => {
   try {
@@ -65,8 +86,14 @@ const start = async () => {
 ║           GPT Realtime Voice Agent Started                   ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Server running on: http://${host}:${port}                      ║
-║  WebSocket endpoint: wss://your-domain/media-stream          ║
-║  Twilio webhook: https://your-domain/incoming-call           ║
+║                                                              ║
+║  📞 Twilio:                                                  ║
+║     WebSocket: wss://your-domain/media-stream                ║
+║     Webhook: https://your-domain/incoming-call               ║
+║                                                              ║
+║  🌐 Web Browser Testing:                                     ║
+║     Open: http://localhost:${port}                              ║
+║     WebSocket: wss://your-domain/web-stream                  ║
 ╚══════════════════════════════════════════════════════════════╝
     `);
   } catch (err) {

@@ -17,6 +17,7 @@
     "fastify": "^4.25.2",
     "@fastify/websocket": "^8.3.1",
     "@fastify/formbody": "^7.4.0",
+    "@fastify/static": "^7.0.1",
     "dotenv": "^16.3.1"
   },
   "devDependencies": {
