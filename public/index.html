@@ -4,204 +4,201 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Voice Agent - Web Client</title>
+  <!-- Materialize CSS -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
   <style>
+    :root {
+      --primary-color: #7c4dff;
+      --primary-light: #b47cff;
+      --primary-dark: #3f1dcb;
+      --accent-color: #448aff;
+      --success-color: #00e676;
+      --warning-color: #ffab00;
+      --danger-color: #ff5252;
+      --surface-dark: #121212;
+      --surface-card: #1e1e1e;
+      --surface-elevated: #2d2d2d;
+      --text-primary: #ffffff;
+      --text-secondary: #b3b3b3;
+    }
+
     * {
       box-sizing: border-box;
-      margin: 0;
-      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      background: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 50%, #16213e 100%);
       min-height: 100vh;
-      color: #fff;
+      color: var(--text-primary);
+      font-family: 'Roboto', sans-serif;
+    }
+
+    /* Navigation */
+    nav {
+      background: rgba(30, 30, 30, 0.95) !important;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    nav .brand-logo {
       display: flex;
-      flex-direction: column;
       align-items: center;
-      padding: 20px;
+      gap: 12px;
+      padding-left: 20px;
     }
 
-    .container {
-      max-width: 600px;
-      width: 100%;
+    nav .brand-logo i {
+      background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
+      padding: 8px;
+      border-radius: 10px;
+      font-size: 1.5rem;
     }
 
-    h1 {
-      text-align: center;
-      margin-bottom: 10px;
-      font-size: 1.8rem;
-      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    nav .brand-logo span {
+      font-weight: 500;
+      font-size: 1.4rem;
+      background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-light) 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
 
-    .subtitle {
-      text-align: center;
-      color: #888;
-      margin-bottom: 30px;
-      font-size: 0.9rem;
+    .nav-badge {
+      background: var(--surface-elevated);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-right: 20px;
     }
 
-    .status-bar {
-      background: rgba(255,255,255,0.1);
-      border-radius: 10px;
-      padding: 15px;
-      margin-bottom: 20px;
-      display: flex;
+    .nav-badge .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--success-color);
+      border-radius: 50%;
+      animation: pulse-dot 2s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* Main Container */
+    .main-container {
+      padding: 30px 20px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--surface-card) !important;
+      border-radius: 16px !important;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    .card .card-content {
+      padding: 24px !important;
+    }
+
+    .card-title {
+      color: var(--text-primary) !important;
+      font-weight: 500 !important;
+      display: flex !important;
       align-items: center;
       gap: 10px;
     }
 
-    .status-indicator {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #666;
-      transition: background 0.3s;
+    .card-title i {
+      color: var(--primary-color);
     }
 
-    .status-indicator.connecting { background: #f59e0b; }
-    .status-indicator.ready { background: #10b981; }
-    .status-indicator.speaking { background: #3b82f6; animation: pulse 1s infinite; }
-    .status-indicator.listening { background: #ef4444; animation: pulse 0.5s infinite; }
-    .status-indicator.error { background: #ef4444; }
+    /* Status Card */
+    .status-section {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .status-indicator {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #666;
+      transition: all 0.3s ease;
+      flex-shrink: 0;
+    }
+
+    .status-indicator.connecting {
+      background: var(--warning-color);
+      box-shadow: 0 0 0 4px rgba(255, 171, 0, 0.25);
+    }
+
+    .status-indicator.ready {
+      background: var(--success-color);
+      box-shadow: 0 0 0 4px rgba(0, 230, 118, 0.25);
+    }
+
+    .status-indicator.speaking {
+      background: var(--accent-color);
+      box-shadow: 0 0 0 4px rgba(68, 138, 255, 0.25);
+      animation: pulse 1s infinite;
+    }
+
+    .status-indicator.listening {
+      background: var(--danger-color);
+      box-shadow: 0 0 0 4px rgba(255, 82, 82, 0.25);
+      animation: pulse 0.5s infinite;
+    }
+
+    .status-indicator.error {
+      background: var(--danger-color);
+      box-shadow: 0 0 0 4px rgba(255, 82, 82, 0.25);
+    }
 
     @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.7; transform: scale(1.1); }
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.15); opacity: 0.8; }
     }
 
     .status-text {
       flex: 1;
-      font-size: 0.9rem;
-    }
-
-    .controls {
-      display: flex;
-      justify-content: center;
-      gap: 15px;
-      margin-bottom: 20px;
-    }
-
-    .btn {
-      padding: 15px 30px;
-      border: none;
-      border-radius: 50px;
       font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.3s;
+      color: var(--text-primary);
+    }
+
+    /* Visualizer */
+    .visualizer-wrapper {
       display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .btn-primary {
-      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-      color: white;
-    }
-
-    .btn-primary:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-    }
-
-    .btn-danger {
-      background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
-      color: white;
-    }
-
-    .btn-danger:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 20px rgba(239, 68, 68, 0.4);
-    }
-
-    .btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .mic-btn {
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      font-size: 2rem;
-      padding: 0;
-      display: flex;
-      align-items: center;
       justify-content: center;
-    }
-
-    .mic-btn.active {
-      background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
-      animation: pulse 1s infinite;
-    }
-
-    .conversation {
-      background: rgba(255,255,255,0.05);
-      border-radius: 15px;
-      padding: 20px;
-      height: 400px;
-      overflow-y: auto;
-      margin-bottom: 20px;
-    }
-
-    .message {
-      margin-bottom: 15px;
-      padding: 12px 16px;
-      border-radius: 12px;
-      max-width: 85%;
-      animation: fadeIn 0.3s;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    .message.user {
-      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-      margin-left: auto;
-      text-align: right;
-    }
-
-    .message.assistant {
-      background: rgba(255,255,255,0.1);
-      margin-right: auto;
-    }
-
-    .message.system {
-      background: rgba(245, 158, 11, 0.2);
-      border: 1px solid rgba(245, 158, 11, 0.3);
-      text-align: center;
-      max-width: 100%;
-      font-size: 0.85rem;
-      color: #f59e0b;
-    }
-
-    .message .role {
-      font-size: 0.75rem;
-      opacity: 0.7;
-      margin-bottom: 4px;
+      align-items: center;
+      padding: 20px 0;
     }
 
     .visualizer {
       display: flex;
       justify-content: center;
       align-items: center;
-      gap: 3px;
-      height: 40px;
-      margin-bottom: 20px;
+      gap: 5px;
+      height: 70px;
     }
 
     .visualizer-bar {
-      width: 4px;
-      height: 10px;
-      background: #667eea;
-      border-radius: 2px;
-      transition: height 0.1s;
+      width: 8px;
+      height: 15px;
+      background: linear-gradient(180deg, var(--primary-color) 0%, var(--primary-light) 100%);
+      border-radius: 4px;
+      transition: height 0.1s ease;
     }
 
     .visualizer.active .visualizer-bar {
@@ -216,65 +213,351 @@
     .visualizer-bar:nth-child(6) { animation-delay: 0.3s; }
     .visualizer-bar:nth-child(7) { animation-delay: 0.2s; }
     .visualizer-bar:nth-child(8) { animation-delay: 0.1s; }
+    .visualizer-bar:nth-child(9) { animation-delay: 0s; }
 
     @keyframes visualize {
-      0%, 100% { height: 10px; }
-      50% { height: 35px; }
+      0%, 100% { height: 15px; }
+      50% { height: 55px; }
     }
 
-    .footer {
+    /* Controls */
+    .controls-wrapper {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      padding: 10px 0;
+    }
+
+    .btn-custom {
+      border-radius: 28px !important;
+      text-transform: none !important;
+      font-weight: 500 !important;
+      letter-spacing: 0.5px;
+      padding: 0 28px;
+      height: 48px;
+      line-height: 48px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+      transition: all 0.3s ease !important;
+    }
+
+    .btn-custom:hover {
+      transform: translateY(-2px);
+    }
+
+    .btn-custom.disabled {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    .btn-primary-custom {
+      background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%) !important;
+    }
+
+    .btn-primary-custom:hover {
+      box-shadow: 0 6px 25px rgba(124, 77, 255, 0.4) !important;
+    }
+
+    .btn-danger-custom {
+      background: linear-gradient(135deg, var(--danger-color) 0%, #ff1744 100%) !important;
+    }
+
+    .btn-danger-custom:hover {
+      box-shadow: 0 6px 25px rgba(255, 82, 82, 0.4) !important;
+    }
+
+    .mic-btn {
+      width: 80px !important;
+      height: 80px !important;
+      border-radius: 50% !important;
+      padding: 0 !important;
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%) !important;
+      box-shadow: 0 6px 20px rgba(124, 77, 255, 0.35) !important;
+    }
+
+    .mic-btn i {
+      font-size: 2rem !important;
+      line-height: 80px;
+    }
+
+    .mic-btn.active {
+      background: linear-gradient(135deg, var(--danger-color) 0%, #ff1744 100%) !important;
+      animation: mic-pulse 1s infinite;
+    }
+
+    @keyframes mic-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.5); }
+      50% { box-shadow: 0 0 0 20px rgba(255, 82, 82, 0); }
+    }
+
+    /* Conversation */
+    .conversation-card .card-content {
+      padding: 0 !important;
+    }
+
+    .conversation-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .conversation-header i {
+      color: var(--primary-color);
+    }
+
+    .conversation-header h6 {
+      margin: 0;
+      font-weight: 500;
+    }
+
+    .conversation {
+      height: 400px;
+      overflow-y: auto;
+      padding: 20px 24px;
+      scroll-behavior: smooth;
+    }
+
+    .conversation::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .conversation::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .conversation::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+
+    .conversation::-webkit-scrollbar-thumb:hover {
+      background: var(--primary-color);
+    }
+
+    .message {
+      margin-bottom: 16px;
+      padding: 14px 18px;
+      border-radius: 18px;
+      max-width: 85%;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .message.user {
+      background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
+      margin-left: auto;
+      text-align: right;
+      border-bottom-right-radius: 6px;
+    }
+
+    .message.assistant {
+      background: var(--surface-elevated);
+      margin-right: auto;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom-left-radius: 6px;
+    }
+
+    .message.system {
+      background: rgba(255, 171, 0, 0.15);
+      border: 1px solid rgba(255, 171, 0, 0.3);
       text-align: center;
-      color: #666;
-      font-size: 0.8rem;
-      margin-top: auto;
+      max-width: 100%;
+      font-size: 0.9rem;
+      color: var(--warning-color);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .message .role {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      opacity: 0.7;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    .message .content {
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    /* Footer */
+    .page-footer {
+      background: rgba(30, 30, 30, 0.95) !important;
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 20px 0 !important;
+    }
+
+    .footer-content {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+    }
+
+    .footer-content i {
+      color: var(--primary-color);
+      font-size: 1rem;
+    }
+
+    /* Responsive */
+    @media only screen and (max-width: 600px) {
+      .main-container {
+        padding: 20px 12px;
+      }
+
+      .controls-wrapper {
+        gap: 12px;
+      }
+
+      .btn-custom {
+        padding: 0 20px;
+        height: 44px;
+        line-height: 44px;
+        font-size: 0.9rem;
+      }
+
+      .mic-btn {
+        width: 70px !important;
+        height: 70px !important;
+      }
+
+      .mic-btn i {
+        font-size: 1.75rem !important;
+        line-height: 70px;
+      }
+
+      .conversation {
+        height: 300px;
+      }
+
+      nav .brand-logo span {
+        font-size: 1.2rem;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>🎙️ Voice Agent</h1>
-    <p class="subtitle">Web Browser Testing Client</p>
+  <!-- Navigation -->
+  <nav>
+    <div class="nav-wrapper">
+      <a href="#" class="brand-logo">
+        <i class="material-icons">mic</i>
+        <span>Voice Agent</span>
+      </a>
+      <ul class="right">
+        <li>
+          <div class="nav-badge">
+            <div class="pulse-dot"></div>
+            <span>Real-time Audio</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </nav>
 
-    <div class="status-bar">
-      <div class="status-indicator" id="statusIndicator"></div>
-      <span class="status-text" id="statusText">Click "Start Call" to begin</span>
+  <!-- Main Content -->
+  <div class="main-container">
+    <!-- Status Card -->
+    <div class="card">
+      <div class="card-content">
+        <div class="status-section">
+          <div class="status-indicator" id="statusIndicator"></div>
+          <span class="status-text" id="statusText">Click "Start Call" to begin</span>
+          <i class="material-icons tooltipped" data-position="left" data-tooltip="Connection status" style="color: var(--text-secondary); cursor: help;">info_outline</i>
+        </div>
+      </div>
     </div>
 
-    <div class="visualizer" id="visualizer">
-      <div class="visualizer-bar"></div>
-      <div class="visualizer-bar"></div>
-      <div class="visualizer-bar"></div>
-      <div class="visualizer-bar"></div>
-      <div class="visualizer-bar"></div>
-      <div class="visualizer-bar"></div>
-      <div class="visualizer-bar"></div>
-      <div class="visualizer-bar"></div>
+    <!-- Visualizer Card -->
+    <div class="card">
+      <div class="card-content">
+        <div class="visualizer-wrapper">
+          <div class="visualizer" id="visualizer">
+            <div class="visualizer-bar"></div>
+            <div class="visualizer-bar"></div>
+            <div class="visualizer-bar"></div>
+            <div class="visualizer-bar"></div>
+            <div class="visualizer-bar"></div>
+            <div class="visualizer-bar"></div>
+            <div class="visualizer-bar"></div>
+            <div class="visualizer-bar"></div>
+            <div class="visualizer-bar"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div class="controls">
-      <button class="btn btn-primary" id="startBtn" onclick="startCall()">
-        📞 Start Call
-      </button>
-      <button class="btn mic-btn btn-primary" id="micBtn" onclick="toggleMic()" disabled>
-        🎤
-      </button>
-      <button class="btn btn-danger" id="endBtn" onclick="endCall()" disabled>
-        📵 End Call
-      </button>
+    <!-- Controls Card -->
+    <div class="card">
+      <div class="card-content">
+        <div class="controls-wrapper">
+          <button class="btn btn-custom btn-primary-custom waves-effect waves-light" id="startBtn" onclick="startCall()">
+            <i class="material-icons left">call</i>
+            Start Call
+          </button>
+          <button class="btn mic-btn waves-effect waves-light" id="micBtn" onclick="toggleMic()" disabled>
+            <i class="material-icons">mic</i>
+          </button>
+          <button class="btn btn-custom btn-danger-custom waves-effect waves-light disabled" id="endBtn" onclick="endCall()" disabled>
+            <i class="material-icons left">call_end</i>
+            End Call
+          </button>
+        </div>
+      </div>
     </div>
 
-    <div class="conversation" id="conversation">
-      <div class="message system">
-        Click "Start Call" to connect to the Voice Agent
+    <!-- Conversation Card -->
+    <div class="card conversation-card">
+      <div class="conversation-header">
+        <i class="material-icons">chat</i>
+        <h6>Conversation</h6>
+      </div>
+      <div class="conversation" id="conversation">
+        <div class="message system">
+          <i class="material-icons" style="font-size: 1.1rem;">info</i>
+          Click "Start Call" to connect to the Voice Agent
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="footer">
-    <p>Voice Agent Web Client | Audio is processed in real-time</p>
-  </div>
+  <!-- Footer -->
+  <footer class="page-footer">
+    <div class="container">
+      <div class="footer-content">
+        <i class="material-icons">bolt</i>
+        <span>Voice Agent Web Client | Audio processed in real-time</span>
+        <i class="material-icons">bolt</i>
+      </div>
+    </div>
+  </footer>
 
+  <!-- Materialize JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
   <script>
+    // Initialize Materialize components
+    document.addEventListener('DOMContentLoaded', function() {
+      M.AutoInit();
+    });
+
     let ws = null;
     let audioContext = null;
     let mediaStream = null;
@@ -285,7 +568,7 @@
     let isPlaying = false;
     let nextPlayTime = 0;
     let isAssistantSpeaking = false;
-    let currentAudioSource = null; // Track current playing audio source
+    let currentAudioSource = null;
 
     const statusIndicator = document.getElementById('statusIndicator');
     const statusText = document.getElementById('statusText');
@@ -303,7 +586,11 @@
     function addMessage(role, text) {
       const div = document.createElement('div');
       div.className = 'message ' + role;
-      div.innerHTML = `<div class="role">${role.toUpperCase()}</div>${text}`;
+      if (role === 'system') {
+        div.innerHTML = `<i class="material-icons" style="font-size: 1.1rem;">info</i>${text}`;
+      } else {
+        div.innerHTML = `<div class="role">${role.toUpperCase()}</div><div class="content">${text}</div>`;
+      }
       conversation.appendChild(div);
       conversation.scrollTop = conversation.scrollHeight;
     }
@@ -312,8 +599,8 @@
       try {
         setStatus('connecting', 'Connecting...');
         startBtn.disabled = true;
+        startBtn.classList.add('disabled');
 
-        // Request microphone access
         mediaStream = await navigator.mediaDevices.getUserMedia({ 
           audio: {
             sampleRate: 24000,
@@ -324,10 +611,8 @@
           } 
         });
 
-        // Create audio context for playback
         audioContext = new AudioContext({ sampleRate: 24000 });
 
-        // Connect WebSocket
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/web-stream`;
         
@@ -337,7 +622,9 @@
           console.log('WebSocket connected');
           setStatus('connecting', 'Connected, initializing...');
           endBtn.disabled = false;
+          endBtn.classList.remove('disabled');
           addMessage('system', 'Connected to Voice Agent');
+          M.toast({html: '<i class="material-icons left">check_circle</i>Connected successfully!', classes: 'rounded green darken-1'});
         };
 
         ws.onmessage = (event) => {
@@ -355,13 +642,16 @@
         ws.onerror = (error) => {
           console.error('WebSocket error:', error);
           setStatus('error', 'Connection error');
+          M.toast({html: '<i class="material-icons left">error</i>Connection error', classes: 'rounded red darken-1'});
           cleanup();
         };
 
       } catch (error) {
         console.error('Error starting call:', error);
         setStatus('error', 'Failed to start: ' + error.message);
+        M.toast({html: '<i class="material-icons left">error</i>' + error.message, classes: 'rounded red darken-1'});
         startBtn.disabled = false;
+        startBtn.classList.remove('disabled');
       }
     }
 
@@ -371,6 +661,7 @@
           if (message.status === 'ready') {
             setStatus('ready', 'Ready - Click mic to speak');
             micBtn.disabled = false;
+            micBtn.classList.remove('disabled');
           } else if (message.status === 'disconnected') {
             cleanup();
           }
@@ -381,12 +672,10 @@
           break;
 
         case 'audio_done':
-          // Don't immediately set ready - wait for audio queue to finish
           break;
 
         case 'speech_started':
           setStatus('listening', 'Listening...');
-          // Stop any playing audio when user starts speaking (barge-in)
           stopPlayback();
           break;
 
@@ -399,11 +688,9 @@
           break;
 
         case 'text_delta':
-          // Could show real-time text here
           break;
 
         case 'response_done':
-          // Audio queue will handle setting status back to ready
           break;
 
         case 'tool_call':
@@ -415,6 +702,7 @@
         case 'error':
           setStatus('error', 'Error: ' + message.message);
           addMessage('system', '⚠️ Error: ' + message.message);
+          M.toast({html: '<i class="material-icons left">error</i>' + message.message, classes: 'rounded red darken-1'});
           break;
       }
     }
@@ -430,7 +718,6 @@
     async function startRecording() {
       if (!mediaStream || !ws) return;
       
-      // If assistant is speaking, stop playback first (barge-in)
       if (isAssistantSpeaking) {
         stopPlayback();
       }
@@ -440,10 +727,8 @@
       setStatus('listening', 'Listening...');
       visualizer.classList.add('active');
 
-      // Create audio processing
       const audioInput = audioContext.createMediaStreamSource(mediaStream);
       
-      // Use ScriptProcessor for audio capture (simpler approach)
       const bufferSize = 4096;
       const scriptProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
       
@@ -452,7 +737,6 @@
         
         const inputData = e.inputBuffer.getChannelData(0);
         
-        // Resample from audioContext.sampleRate to 24000 if needed
         const targetSampleRate = 24000;
         let processedData;
         
@@ -467,24 +751,20 @@
           processedData = inputData;
         }
         
-        // Convert to PCM16
         const pcm16 = new Int16Array(processedData.length);
         for (let i = 0; i < processedData.length; i++) {
           const s = Math.max(-1, Math.min(1, processedData[i]));
           pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
         
-        // Convert to base64
         const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
         
-        // Send to server
         ws.send(JSON.stringify({ type: 'audio', audio: base64 }));
       };
 
       audioInput.connect(scriptProcessor);
       scriptProcessor.connect(audioContext.destination);
       
-      // Store for cleanup
       audioWorklet = { scriptProcessor, audioInput };
     }
 
@@ -502,7 +782,6 @@
       }
     }
 
-    // Queue audio for sequential playback (prevents overlapping)
     function queueAudio(base64Audio) {
       audioQueue.push(base64Audio);
       if (!isPlaying) {
@@ -510,27 +789,22 @@
       }
     }
 
-    // Stop all audio playback
     function stopPlayback() {
       audioQueue = [];
       isPlaying = false;
       isAssistantSpeaking = false;
       nextPlayTime = 0;
       
-      // Stop currently playing audio source
       if (currentAudioSource) {
         try {
           currentAudioSource.stop();
-        } catch (e) {
-          // Already stopped
-        }
+        } catch (e) {}
         currentAudioSource = null;
       }
       
       visualizer.classList.remove('active');
     }
 
-    // Play audio chunks sequentially
     async function playNextInQueue() {
       if (audioQueue.length === 0) {
         isPlaying = false;
@@ -548,21 +822,18 @@
       const base64Audio = audioQueue.shift();
 
       try {
-        // Decode base64 to PCM16
         const binaryString = atob(base64Audio);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
         
-        // Convert PCM16 to Float32
         const pcm16 = new Int16Array(bytes.buffer);
         const float32 = new Float32Array(pcm16.length);
         for (let i = 0; i < pcm16.length; i++) {
           float32[i] = pcm16[i] / 32768;
         }
 
-        // Create audio buffer and play
         const audioBuffer = audioContext.createBuffer(1, float32.length, 24000);
         audioBuffer.getChannelData(0).set(float32);
 
@@ -570,15 +841,12 @@
         source.buffer = audioBuffer;
         source.connect(audioContext.destination);
         
-        // Track current source so we can stop it on interruption
         currentAudioSource = source;
         
-        // When this chunk ends, play next
         source.onended = () => {
           if (currentAudioSource === source) {
             currentAudioSource = null;
           }
-          // Only continue if not interrupted
           if (isPlaying) {
             playNextInQueue();
           }
@@ -588,7 +856,7 @@
         
       } catch (error) {
         console.error('Error playing audio:', error);
-        playNextInQueue(); // Try next chunk
+        playNextInQueue();
       }
     }
 
@@ -602,6 +870,7 @@
         ws.close();
       }
       cleanup();
+      M.toast({html: '<i class="material-icons left">call_end</i>Call ended', classes: 'rounded'});
     }
 
     function cleanup() {
@@ -622,13 +891,15 @@
       nextPlayTime = 0;
       currentAudioSource = null;
       startBtn.disabled = false;
+      startBtn.classList.remove('disabled');
       endBtn.disabled = true;
+      endBtn.classList.add('disabled');
       micBtn.disabled = true;
+      micBtn.classList.add('disabled');
       micBtn.classList.remove('active');
       visualizer.classList.remove('active');
     }
 
-    // Cleanup on page unload
     window.addEventListener('beforeunload', cleanup);
   </script>
 </body>
