@@ -249,7 +249,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
       type: 'response.create',
       response: {
         modalities: ['text', 'audio'],
-        instructions: 'Greet the user warmly and ask how you can help them today.'
+        instructions: 'Dis exactement en français: "Bonjour ! Je suis l\'assistant eva de  ev24. Comment puis-je vous aider aujourd\'hui ?"'
       }
     };
     openAiWs.send(JSON.stringify(greetingEvent));

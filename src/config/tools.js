@@ -121,6 +121,33 @@ export const TOOLS = [
 
   {
     type: 'function',
+    name: 'stop_charging',
+    description: 'Stop an active charging session on a specific connector.',
+    parameters: {
+      type: 'object',
+      properties: {
+        station_id: {
+          type: 'string',
+          description: 'The charging station ID'
+        },
+        connector_id: {
+          type: 'string',
+          description: 'The connector number to stop charging on'
+        },
+        user_id: {
+          type: 'string',
+          description: 'The user ID for the charging session'
+        },
+        rfid_number: {
+          type: 'string',
+          description: 'The RFID card number if applicable'
+        }
+      },
+      required: ['station_id', 'connector_id', 'user_id']
+    }
+  },
+  {
+    type: 'function',
     name: 'check_cdrs',
     description: 'Check charging session history (CDRs - Charge Detail Records) for a user.',
     parameters: {
@@ -220,6 +247,7 @@ export const TOOL_ENDPOINTS = {
   verify_rfid: '/verify-rfid',
   get_rfid: '/get-rfid',
   remote_control: '/remote-control',
+  stop_charging: '/stop-charging',
   check_cdrs: '/check-cdrs',
   check_invoice: '/check-invoice',
   invoice_sending_agent: '/invoice-sending',
