@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { OPENAI_CONFIG, VOICE_AGENT_INSTRUCTIONS } from '../config/openai.js';
 import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
+import ChatwootLogger from '../services/chatwootLogger.js';
 
 // Build Azure OpenAI Realtime WebSocket URL
 const getAzureRealtimeUrl = () => {
@@ -17,6 +18,7 @@ export function handleTwilioWebSocket(connection, logger) {
   let callSid = null;
   let isOpenAiReady = false;
   let audioQueue = [];
+  let chatwootLogger = null;
 
   // Connect to Azure OpenAI Realtime API
   const connectToOpenAI = () => {
@@ -74,11 +76,15 @@ export function handleTwilioWebSocket(connection, logger) {
         temperature: OPENAI_CONFIG.temperature,
         tools: TOOLS,
         tool_choice: 'auto',
+        input_audio_transcription: {
+          model: 'whisper-1',
+          language: 'fr'
+        }
       }
     };
 
     openAiWs.send(JSON.stringify(sessionConfig));
-    logger.info('Session configuration sent to OpenAI with tools');
+    logger.info('Session configuration sent to OpenAI with tools and transcription enabled');
   };
 
   // Handle tool calls from OpenAI and execute n8n webhooks
@@ -182,17 +188,44 @@ export function handleTwilioWebSocket(connection, logger) {
         }
         break;
 
-      case 'input_audio_buffer.speech_stopped':
-        logger.info('User stopped speaking');
+      case 'conversation.item.input_audio_transcription.completed':
+        if (message.transcript) {
+          logger.info(`User: ${message.transcript}`);
+          if (chatwootLogger) {
+            chatwootLogger.logUser(message.transcript);
+          }
+        }
+        break;
+
+      case 'conversation.item.input_audio_transcription.completed':
+        if (message.transcript) {
+          logger.info(`User: ${message.transcript}`);
+          if (chatwootLogger) {
+            chatwootLogger.logUser(message.transcript);
+          }
+        }
         break;
 
       case 'response.done':
+        console.log('DEBUG: response.done event received');
+        console.log('DEBUG: message.response?.output:', JSON.stringify(message.response?.output, null, 2));
         if (message.response?.output) {
           message.response.output.forEach(output => {
+            console.log('DEBUG: output.type:', output.type);
             if (output.type === 'message' && output.content) {
               output.content.forEach(content => {
+                console.log('DEBUG: content.type:', content.type);
+                // Handle both text and audio (with transcript) content
                 if (content.type === 'text') {
                   logger.info(`Assistant: ${content.text}`);
+                  if (chatwootLogger) {
+                    chatwootLogger.logAssistant(content.text);
+                  }
+                } else if (content.type === 'audio' && content.transcript) {
+                  logger.info(`Assistant: ${content.transcript}`);
+                  if (chatwootLogger) {
+                    chatwootLogger.logAssistant(content.transcript);
+                  }
                 }
               });
             }
@@ -271,6 +304,8 @@ export function handleTwilioWebSocket(connection, logger) {
           streamSid = message.start.streamSid;
           callSid = message.start.callSid;
           logger.info(`Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}`);
+          chatwootLogger = new ChatwootLogger(`twilio-${callSid}`, callSid);
+          logger.info('Conversation logging started');
           break;
 
         case 'media':
@@ -296,8 +331,11 @@ export function handleTwilioWebSocket(connection, logger) {
   });
 
   // Handle Twilio WebSocket close
-  connection.socket.on('close', () => {
+  connection.socket.on('close', async () => {
     logger.info('Twilio WebSocket closed');
+    if (chatwootLogger) {
+      await chatwootLogger.close();
+    }
     if (openAiWs?.readyState === WebSocket.OPEN) {
       openAiWs.close();
     }

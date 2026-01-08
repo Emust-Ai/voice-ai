@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { OPENAI_CONFIG, VOICE_AGENT_INSTRUCTIONS } from '../config/openai.js';
 import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
+import ChatwootLogger from '../services/chatwootLogger.js';
 
 // Build Azure OpenAI Realtime WebSocket URL
 const getAzureRealtimeUrl = () => {
@@ -17,6 +18,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
   let isOpenAiReady = false;
   let audioQueue = [];
   let processedToolCalls = new Set(); // Track processed tool calls to prevent duplicates
+  let chatwootLogger = new ChatwootLogger(sessionId);
 
   logger.info(`Web browser client connected - Session: ${sessionId}`);
 
@@ -79,11 +81,15 @@ export function handleWebBrowserWebSocket(connection, logger) {
         temperature: OPENAI_CONFIG.temperature,
         tools: TOOLS,
         tool_choice: 'auto',
+        input_audio_transcription: {
+          model: 'whisper-1',
+          language: 'fr'
+        }
       }
     };
 
     openAiWs.send(JSON.stringify(sessionConfig));
-    logger.info('Session configuration sent to OpenAI (Web Client - PCM16 format)');
+    logger.info('Session configuration sent to OpenAI (Web Client - PCM16 format with transcription)');
   };
 
   // Send message to web client
@@ -201,13 +207,27 @@ export function handleWebBrowserWebSocket(connection, logger) {
         break;
 
       case 'response.done':
+        console.log('DEBUG: response.done event received');
+        console.log('DEBUG: message.response?.output:', JSON.stringify(message.response?.output, null, 2));
         if (message.response?.output) {
           message.response.output.forEach(output => {
+            console.log('DEBUG: output.type:', output.type);
             if (output.type === 'message' && output.content) {
               output.content.forEach(content => {
+                console.log('DEBUG: content.type:', content.type);
+                // Handle both text and audio (with transcript) content
                 if (content.type === 'text') {
                   logger.info(`Assistant (Web): ${content.text}`);
+                  if (chatwootLogger) {
+                    chatwootLogger.logAssistant(content.text);
+                  }
                   sendToClient({ type: 'transcript', role: 'assistant', text: content.text });
+                } else if (content.type === 'audio' && content.transcript) {
+                  logger.info(`Assistant (Web): ${content.transcript}`);
+                  if (chatwootLogger) {
+                    chatwootLogger.logAssistant(content.transcript);
+                  }
+                  sendToClient({ type: 'transcript', role: 'assistant', text: content.transcript });
                 }
               });
             }
@@ -219,6 +239,10 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
       case 'conversation.item.input_audio_transcription.completed':
         if (message.transcript) {
+          logger.info(`User (Web): ${message.transcript}`);
+          if (chatwootLogger) {
+            chatwootLogger.logUser(message.transcript);
+          }
           sendToClient({ type: 'transcript', role: 'user', text: message.transcript });
         }
         break;
@@ -313,8 +337,11 @@ export function handleWebBrowserWebSocket(connection, logger) {
   });
 
   // Handle WebSocket close
-  connection.socket.on('close', () => {
+  connection.socket.on('close', async () => {
     logger.info('Web client WebSocket closed');
+    if (chatwootLogger) {
+      await chatwootLogger.close();
+    }
     if (openAiWs?.readyState === WebSocket.OPEN) {
       openAiWs.close();
     }
