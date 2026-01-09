@@ -5,8 +5,8 @@ export const OPENAI_CONFIG = {
   temperature: 0.6,
   turn_detection: {
     type: 'server_vad',
-    threshold: 0.5, // Lower threshold (0.5) for better speech detection
-    prefix_padding_ms: 300,
+    threshold: 0.4, // Lower threshold (0.5) for better speech detection
+    prefix_padding_ms: 150,
     silence_duration_ms: 700 // Longer duration to avoid cutting off speech
   },
 };

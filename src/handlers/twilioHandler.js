@@ -260,7 +260,11 @@ export function handleTwilioWebSocket(connection, logger) {
   // Send initial greeting to start conversation
   const sendInitialGreeting = () => {
     const greetingEvent = {
-      type: 'response.create'
+        type: 'response.create',
+      response: {
+        modalities: ['text', 'audio'],
+        instructions: 'Dis exactement en français: "Bonjour ! Je suis l\'assistant eva de ev24. Comment puis-je vous aider aujourd\'hui ?"'
+      }
     };
     openAiWs.send(JSON.stringify(greetingEvent));
     logger.info('Initial greeting triggered');
