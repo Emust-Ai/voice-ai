@@ -72,7 +72,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
     const sessionConfig = {
       type: 'session.update',
       session: {
-        turn_detection: { type: 'server_vad' },
+        turn_detection: OPENAI_CONFIG.turn_detection,
         input_audio_format: 'pcm16',  // Web browsers use PCM16
         output_audio_format: 'pcm16', // Web browsers use PCM16
         voice: OPENAI_CONFIG.voice,
@@ -270,11 +270,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
   // Send initial greeting
   const sendInitialGreeting = () => {
     const greetingEvent = {
-      type: 'response.create',
-      response: {
-        modalities: ['text', 'audio'],
-        instructions: 'Dis exactement en français: "Bonjour ! Je suis l\'assistant eva de  ev24. Comment puis-je vous aider aujourd\'hui ?"'
-      }
+      type: 'response.create'
     };
     openAiWs.send(JSON.stringify(greetingEvent));
     logger.info('Initial greeting triggered (Web Client)');

@@ -67,7 +67,7 @@ export function handleTwilioWebSocket(connection, logger) {
     const sessionConfig = {
       type: 'session.update',
       session: {
-        turn_detection: { type: 'server_vad' },
+        turn_detection: OPENAI_CONFIG.turn_detection,
         input_audio_format: 'g711_ulaw',
         output_audio_format: 'g711_ulaw',
         voice: OPENAI_CONFIG.voice,
@@ -260,11 +260,7 @@ export function handleTwilioWebSocket(connection, logger) {
   // Send initial greeting to start conversation
   const sendInitialGreeting = () => {
     const greetingEvent = {
-      type: 'response.create',
-      response: {
-        modalities: ['text', 'audio'],
-        instructions: 'Dis exactement en français: "Bonjour ! Je suis l\'assistant wattzhub. Comment puis-je vous aider aujourd\'hui ?"'
-      }
+      type: 'response.create'
     };
     openAiWs.send(JSON.stringify(greetingEvent));
     logger.info('Initial greeting triggered');
