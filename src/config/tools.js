@@ -12,19 +12,41 @@ console.log('N8N_BASE_URL configured as:', N8N_BASE_URL);
 export const TOOLS = [
   {
     type: 'function',
+    name: 'tenant_find',
+    description: 'Identify the tenant/network from a station name, location, or area. This must be called FIRST before any other tool when a user mentions a location or station.',
+    parameters: {
+      type: 'object',
+      properties: {
+        location_or_station: {
+          type: 'string',
+          description: 'The station name, location, or area mentioned by the user (e.g., "Carrefour", "Paris 15", "Station ABC")'
+        }
+      },
+      required: ['location_or_station']
+    }
+  },
+  {
+    type: 'function',
     name: 'station_verification',
     description: 'Verify the status of a charging station. Returns whether the station is operative or inoperative. Can search by station name, station ID, or area/location name.',
     parameters: {
       type: 'object',
       properties: {
-        station_name: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
+    parameters: {
+      type: 'object',
+      properties: {
+        station_name_or_location: {
           type: 'string',
           description: 'The name, ID, or area/location of the charging station to verify (e.g., "Station Paris 15", "Carrefour Montreuil", "Zone Commerciale Bercy")'
         }
       },
-      required: ['station_name']
+      required: ['tenant', 'station_name_or_location']
     }
-  },
+  }}},
   {
     type: 'function',
     name: 'user_management',
@@ -32,6 +54,10 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
         name: {
           type: 'string',
           description: 'The full name of the user to search for'
@@ -45,7 +71,7 @@ export const TOOLS = [
           description: 'The last 4 digits of the credit card for verification'
         }
       },
-      required: []
+      required: ['tenant']
     }
   },
   {
@@ -55,12 +81,16 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
         rfid_number: {
           type: 'string',
           description: 'The RFID card number printed on the card (can contain letters and numbers, e.g., ABC123 or 12AB34CD)'
         }
       },
-      required: ['rfid_number']
+      required: ['tenant', 'rfid_number']
     }
   },
   {
@@ -70,6 +100,10 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
         user_id: {
           type: 'string',
           description: 'The user ID to look up'
@@ -83,7 +117,7 @@ export const TOOLS = [
           description: 'The connector number (optional)'
         }
       },
-      required: ['user_id', 'station_name', 'connector_id']
+      required: ['tenant', 'user_id', 'station_name', 'connector_id']
     }
   },
   {
@@ -93,6 +127,10 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
         station_id: {
           type: 'string',
           description: 'The charging station ID'
@@ -115,7 +153,7 @@ export const TOOLS = [
           description: 'The RFID card number if applicable'
         }
       },
-      required: ['station_id', 'connector_id', 'action', 'rfid_number']
+      required: ['tenant', 'station_id', 'connector_id', 'action', 'rfid_number']
     }
   },
 
@@ -126,6 +164,10 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
         station_id: {
           type: 'string',
           description: 'The charging station ID'
@@ -143,7 +185,7 @@ export const TOOLS = [
           description: 'The RFID card number if applicable'
         }
       },
-      required: ['station_id', 'connector_id', 'user_id']
+      required: ['tenant', 'station_id', 'connector_id', 'user_id']
     }
   },
   {
@@ -153,6 +195,10 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
         user_id: {
           type: 'string',
           description: 'The user ID to look up charging history for'
@@ -162,7 +208,7 @@ export const TOOLS = [
           description: 'Maximum number of records to return (default: 5)'
         }
       },
-      required: ['user_id']
+      required: ['tenant', 'user_id']
     }
   },
   {
@@ -172,12 +218,16 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
         user_id: {
           type: 'string',
           description: 'The user ID to look up invoices for'
         }
       },
-      required: ['user_id']
+      required: ['tenant', 'user_id']
     }
   },
   {
@@ -187,6 +237,10 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
         user_id: {
           type: 'string',
           description: 'The user ID'
@@ -197,7 +251,7 @@ export const TOOLS = [
           description: 'Type of document to send'
         }
       },
-      required: ['user_id', 'type']
+      required: ['tenant', 'user_id', 'type']
     }
   },
   {
@@ -207,12 +261,16 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool'
+        },
         station_id: {
           type: 'string',
           description: 'The charging station ID'
         }
       },
-      required: ['station_id']
+      required: ['tenant', 'station_id']
     }
   },
   {
@@ -222,6 +280,10 @@ export const TOOLS = [
     parameters: {
       type: 'object',
       properties: {
+        tenant: {
+          type: 'string',
+          description: 'The tenant name obtained from tenant_find tool (if available)'
+        },
         reason: {
           type: 'string',
           description: 'The reason for escalation'
@@ -242,6 +304,7 @@ export const TOOLS = [
 
 // Map tool names to their n8n webhook endpoints
 export const TOOL_ENDPOINTS = {
+  tenant_find: '/tenant-find',
   station_verification: '/station-verification',
   user_management: '/user-management',
   verify_rfid: '/verify-rfid',

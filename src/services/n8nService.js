@@ -51,7 +51,13 @@ export async function executeN8nTool(toolName, args, context = {}) {
       };
     }
 
-    const result = await response.json();
+    let result = await response.json();
+    
+    // Handle array responses from n8n (e.g., [{ "output": "value" }])
+    if (Array.isArray(result) && result.length > 0) {
+      result = result[0];
+    }
+    
     return {
       success: true,
       data: result
