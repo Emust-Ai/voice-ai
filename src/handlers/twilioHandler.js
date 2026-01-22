@@ -78,7 +78,8 @@ export function handleTwilioWebSocket(connection, logger) {
         tool_choice: 'auto',
         input_audio_transcription: {
           model: 'whisper-1',
-          language: 'fr'
+          language: 'fr',
+          prompt: 'Vocabulaire: relais, borne de recharge, station, Carrefour, connecteur, RFID, wattzhub, véhicule électrique, recharge, câble, prise. Noms de lieux et stations de recharge en France.'
         }
       }
     };
@@ -96,6 +97,27 @@ export function handleTwilioWebSocket(connection, logger) {
     try {
       const args = JSON.parse(argsString);
       logger.info(`Tool arguments: ${JSON.stringify(args)}`);
+      
+      // Announce tool usage before executing
+      const announcementMessage = {
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: `[SYSTEM: Before calling ${name} tool, please announce to the user in their language that you will check this information and come back to them in a moment. Say something natural like "Un instant, je vérifie cela pour vous" or "Please give me a moment while I check this information"]`
+            }
+          ]
+        }
+      };
+      
+      openAiWs.send(JSON.stringify(announcementMessage));
+      openAiWs.send(JSON.stringify({ type: 'response.create' }));
+      
+      // Wait for the announcement to be spoken (give it 2 seconds)
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       // Execute the n8n tool
       const result = await executeN8nTool(name, args, { callSid, streamSid });
