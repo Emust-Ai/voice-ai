@@ -19,6 +19,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
   let audioQueue = [];
   let processedToolCalls = new Set(); // Track processed tool calls to prevent duplicates
   let chatwootLogger = new ChatwootLogger(sessionId);
+  let isResponseActive = false; // Track if OpenAI is currently generating a response
 
   logger.info(`Web browser client connected - Session: ${sessionId}`);
 
@@ -173,6 +174,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
         break;
 
       case 'response.audio.delta':
+        isResponseActive = true; // Mark that a response is being generated
         if (message.delta) {
           // Send audio back to web client
           sendToClient({
@@ -185,14 +187,17 @@ export function handleWebBrowserWebSocket(connection, logger) {
       case 'response.audio.done':
         logger.info('OpenAI audio response complete');
         sendToClient({ type: 'audio_done' });
+        isResponseActive = false; // Mark that response is complete
         break;
 
       case 'input_audio_buffer.speech_started':
         logger.info('User started speaking (Web Client)');
         sendToClient({ type: 'speech_started' });
-        // Cancel any ongoing response when user interrupts
-        if (openAiWs?.readyState === WebSocket.OPEN) {
+        // Cancel any ongoing response when user interrupts (only if there's an active response)
+        if (isResponseActive && openAiWs?.readyState === WebSocket.OPEN) {
           openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
+          isResponseActive = false;
+          logger.info('Cancelled active OpenAI response due to user interruption');
         }
         break;
 

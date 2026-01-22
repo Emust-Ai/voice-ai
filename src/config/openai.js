@@ -1,13 +1,15 @@
 // OpenAI Realtime API Configuration
 export const OPENAI_CONFIG = {
   model: 'gpt-realtime',
-  voice: 'alloy', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
-  temperature: 0.7,
-  turn_detection: {
+  voice: 'verse', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
+  temperature: 0.8,
+    turn_detection: {
     type: 'server_vad',
-    threshold: 0.4, // Lower threshold for better speech detection (more sensitive)
-    prefix_padding_ms: 300, // Increased padding to capture beginning of words
-    silence_duration_ms: 600 // Longer duration to capture complete phrases
+    threshold: 0.5, // 0.5 is the standard default. 0.4 might be too sensitive to background noise.
+    prefix_padding_ms: 300, // Keeps the start of speech; 300ms is a solid choice.
+    silence_duration_ms: 500, // 500-600ms is best for natural pauses without awkward interruptions.
+    create_response: true, // Ensure the model responds automatically after a turn.
+    interrupt_response: true // Allow users to barge in and interrupt the model.
   },
 };
 

@@ -19,6 +19,7 @@ export function handleTwilioWebSocket(connection, logger) {
   let isOpenAiReady = false;
   let audioQueue = [];
   let chatwootLogger = null;
+  let isResponseActive = false; // Track if OpenAI is currently generating a response
 
   // Connect to Azure OpenAI Realtime API
   const connectToOpenAI = () => {
@@ -162,6 +163,7 @@ export function handleTwilioWebSocket(connection, logger) {
         break;
 
       case 'response.audio.delta':
+        isResponseActive = true; // Mark that a response is being generated
         if (message.delta && streamSid) {
           // Send audio back to Twilio
           const audioMessage = {
@@ -177,6 +179,7 @@ export function handleTwilioWebSocket(connection, logger) {
 
       case 'response.audio.done':
         logger.info('OpenAI audio response complete');
+        isResponseActive = false; // Mark that response is complete
         break;
 
       case 'input_audio_buffer.speech_started':
@@ -188,9 +191,11 @@ export function handleTwilioWebSocket(connection, logger) {
             streamSid: streamSid
           }));
         }
-        // Cancel any ongoing OpenAI response when user interrupts
-        if (openAiWs?.readyState === WebSocket.OPEN) {
+        // Cancel any ongoing OpenAI response when user interrupts (only if there's an active response)
+        if (isResponseActive && openAiWs?.readyState === WebSocket.OPEN) {
           openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
+          isResponseActive = false;
+          logger.info('Cancelled active OpenAI response due to user interruption');
         }
         break;
 
