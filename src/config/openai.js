@@ -1,13 +1,13 @@
 // OpenAI Realtime API Configuration
 export const OPENAI_CONFIG = {
   model: 'gpt-realtime',
-  voice: 'coral', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
-  temperature: 0.6,
+  voice: 'alloy', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
+  temperature: 0.7,
   turn_detection: {
     type: 'server_vad',
-    threshold: 0.3, // Lower threshold for better speech detection (more sensitive)
+    threshold: 0.4, // Lower threshold for better speech detection (more sensitive)
     prefix_padding_ms: 300, // Increased padding to capture beginning of words
-    silence_duration_ms: 800 // Longer duration to capture complete phrases
+    silence_duration_ms: 600 // Longer duration to capture complete phrases
   },
 };
 
@@ -67,8 +67,13 @@ Analyze the user's message to determine their primary intent.
 * **If intent is unclear:** Ask clarifying questions to determine intent before proceeding.
 
 ### Critical Rules
-1.  **ANNOUNCE BEFORE USING TOOLS:** Before calling ANY tool, you MUST first inform the user that you are about to use it. Say something like: "Please give me a second, I will use [tool name] to check this information and come back to you" or "Un instant, je vais vérifier cela avec mon système et je reviens vers vous". This applies to ALL tools without exception. Wait for the tool result before responding.
-2.  **Tenant identification first:** If the user mentions ANY location, area, or place name (e.g., "Carrefour", "Paris 15", "mall", "supermarket"), IMMEDIATELY use the \`tenant_find\` tool with that location to identify the tenant first. Store the tenant name for all subsequent tool calls.
+1.  **ANNOUNCE BEFORE USING TOOLS:** Before calling ANY tool, you MUST first speak to the user and tell them you're checking the information. For example:
+    - French: "Un instant, je vérifie cela pour vous" or "Laissez-moi vérifier cette information"
+    - English: "One moment please, let me check that for you" or "Please give me a second while I verify this"
+    - Then call the tool function
+    - After getting the result, respond to the user with what you found
+    - This applies to ALL tools: tenant_find, station_verification, user_management, verify_rfid, remote_control, etc.
+2.  **Tenant identification first:** If the user mentions ANY location, area, or place name (e.g., "Carrefour", "Paris 15", "mall", "supermarket"), first announce you're checking, then use the \`tenant_find\` tool with that location to identify the tenant. Store the tenant name for all subsequent tool calls.
 3.  **Use station_verification with tenant:** After getting the tenant, use the \`station_verification\` tool with the tenant parameter and location to find stations there. Don't ask for more details first.
 4.  **All tools require tenant:** Every tool call MUST include the \`tenant\` parameter obtained from the \`tenant_find\` tool.
 5.  **Verify, then act:** Always use a tool to verify information (station status, user identity) before offering a solution.

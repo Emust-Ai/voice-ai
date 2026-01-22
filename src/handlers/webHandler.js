@@ -112,34 +112,11 @@ export function handleWebBrowserWebSocket(connection, logger) {
     processedToolCalls.add(call_id);
     
     logger.info(`Tool call received: ${name} with call_id: ${call_id}`);
-    sendToClient({ type: 'tool_call', name, status: 'announcing' });
+    sendToClient({ type: 'tool_call', name, status: 'executing' });
     
     try {
       const args = JSON.parse(argsString);
       logger.info(`Tool arguments: ${JSON.stringify(args)}`);
-      
-      // Announce tool usage before executing
-      const announcementMessage = {
-        type: 'conversation.item.create',
-        item: {
-          type: 'message',
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: `[SYSTEM: Before calling ${name} tool, please announce to the user in their language that you will check this information and come back to them in a moment. Say something natural like "Un instant, je vérifie cela pour vous" or "Please give me a moment while I check this information"]`
-            }
-          ]
-        }
-      };
-      
-      openAiWs.send(JSON.stringify(announcementMessage));
-      openAiWs.send(JSON.stringify({ type: 'response.create' }));
-      
-      // Wait for the announcement to be spoken (give it 2 seconds)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      sendToClient({ type: 'tool_call', name, status: 'executing' });
       
       const result = await executeN8nTool(name, args, { sessionId });
       

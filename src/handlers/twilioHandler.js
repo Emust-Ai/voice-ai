@@ -98,27 +98,6 @@ export function handleTwilioWebSocket(connection, logger) {
       const args = JSON.parse(argsString);
       logger.info(`Tool arguments: ${JSON.stringify(args)}`);
       
-      // Announce tool usage before executing
-      const announcementMessage = {
-        type: 'conversation.item.create',
-        item: {
-          type: 'message',
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: `[SYSTEM: Before calling ${name} tool, please announce to the user in their language that you will check this information and come back to them in a moment. Say something natural like "Un instant, je vérifie cela pour vous" or "Please give me a moment while I check this information"]`
-            }
-          ]
-        }
-      };
-      
-      openAiWs.send(JSON.stringify(announcementMessage));
-      openAiWs.send(JSON.stringify({ type: 'response.create' }));
-      
-      // Wait for the announcement to be spoken (give it 2 seconds)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
       // Execute the n8n tool
       const result = await executeN8nTool(name, args, { callSid, streamSid });
       
@@ -162,6 +141,11 @@ export function handleTwilioWebSocket(connection, logger) {
 
   // Handle messages from OpenAI
   const handleOpenAiMessage = (message) => {
+    // Log all message types for debugging
+    if (message.type !== 'response.audio.delta' && message.type !== 'input_audio_buffer.speech_started') {
+      logger.info(`OpenAI message: ${message.type}`);
+    }
+    
     switch (message.type) {
       case 'session.created':
         logger.info('OpenAI session created');
@@ -271,7 +255,14 @@ export function handleTwilioWebSocket(connection, logger) {
         break;
 
       case 'error':
-        logger.error('OpenAI error:', message.error);
+        logger.error({ 
+          error: message.error,
+          type: message.error?.type,
+          code: message.error?.code,
+          message: message.error?.message,
+          param: message.error?.param,
+          event_id: message.error?.event_id
+        }, 'OpenAI error occurred');
         break;
 
       default:
@@ -282,11 +273,7 @@ export function handleTwilioWebSocket(connection, logger) {
   // Send initial greeting to start conversation
   const sendInitialGreeting = () => {
     const greetingEvent = {
-        type: 'response.create',
-      response: {
-        modalities: ['text', 'audio'],
-        instructions: 'Dis exactement en français: "Bonjour ! Je suis l\'assistant eva de ev24. Comment puis-je vous aider aujourd\'hui ?"'
-      }
+      type: 'response.create'
     };
     openAiWs.send(JSON.stringify(greetingEvent));
     logger.info('Initial greeting triggered');
