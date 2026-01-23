@@ -2,12 +2,13 @@
 export const OPENAI_CONFIG = {
   model: 'gpt-realtime',
   voice: 'verse', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
-  temperature: 0.8,
-    turn_detection: {
+  temperature: 0.6, // Lower temperature for faster, more consistent responses
+  max_response_output_tokens: 150, // Limit response length for faster audio generation
+  turn_detection: {
     type: 'server_vad',
-    threshold: 0.5, // 0.5 is the standard default. 0.4 might be too sensitive to background noise.
-    prefix_padding_ms: 300, // Keeps the start of speech; 300ms is a solid choice.
-    silence_duration_ms: 500, // 500-600ms is best for natural pauses without awkward interruptions.
+    threshold: 0.6, // Slightly higher threshold reduces false triggers from noise
+    prefix_padding_ms: 200, // Reduced from 300ms for faster turn start detection
+    silence_duration_ms: 300, // Reduced from 500ms - faster response after user stops speaking
     create_response: true, // Ensure the model responds automatically after a turn.
     interrupt_response: true // Allow users to barge in and interrupt the model.
   },

@@ -1,12 +1,13 @@
 /**
  * Generate TwiML response for incoming calls
  * This instructs Twilio to connect the call to our WebSocket server
+ * Uses bidirectional streaming for lowest latency
  */
 export function generateTwiML(websocketUrl) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${websocketUrl}">
+    <Stream url="${websocketUrl}" track="both_tracks">
       <Parameter name="aCustomParameter" value="aCustomValue" />
     </Stream>
   </Connect>

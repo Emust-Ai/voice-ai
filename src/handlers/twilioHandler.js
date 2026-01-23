@@ -75,6 +75,7 @@ export function handleTwilioWebSocket(connection, logger) {
         instructions: VOICE_AGENT_INSTRUCTIONS,
         modalities: ['text', 'audio'],
         temperature: OPENAI_CONFIG.temperature,
+        max_response_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 150,
         tools: TOOLS,
         tool_choice: 'auto',
         input_audio_transcription: {
@@ -87,6 +88,10 @@ export function handleTwilioWebSocket(connection, logger) {
 
     openAiWs.send(JSON.stringify(sessionConfig));
     logger.info('Session configuration sent to OpenAI with tools and transcription enabled');
+    
+    // Immediately mark as ready and send greeting without waiting for session.updated
+    isOpenAiReady = true;
+    processAudioQueue();
   };
 
   // Handle tool calls from OpenAI and execute n8n webhooks
@@ -150,30 +155,25 @@ export function handleTwilioWebSocket(connection, logger) {
     switch (message.type) {
       case 'session.created':
         logger.info('OpenAI session created');
-        isOpenAiReady = true;
-        // Process any queued audio
-        processAudioQueue();
+        // Don't wait - session config will be sent immediately
         break;
 
       case 'session.updated':
         logger.info('OpenAI session updated');
         isOpenAiReady = true;
-        // Send initial greeting
+        // Send initial greeting immediately - no delay
         sendInitialGreeting();
         break;
 
       case 'response.audio.delta':
         isResponseActive = true; // Mark that a response is being generated
-        if (message.delta && streamSid) {
-          // Send audio back to Twilio
-          const audioMessage = {
+        // Send audio immediately to Twilio - no buffering for lowest latency
+        if (message.delta && streamSid && connection.socket.readyState === WebSocket.OPEN) {
+          connection.socket.send(JSON.stringify({
             event: 'media',
             streamSid: streamSid,
-            media: {
-              payload: message.delta
-            }
-          };
-          connection.socket.send(JSON.stringify(audioMessage));
+            media: { payload: message.delta }
+          }));
         }
         break;
 
