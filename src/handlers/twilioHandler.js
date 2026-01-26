@@ -81,7 +81,7 @@ export function handleTwilioWebSocket(connection, logger) {
         input_audio_transcription: {
           model: 'whisper-1',
           language: 'fr',
-          prompt: 'Vocabulaire: relais, borne de recharge, station, Carrefour, connecteur, RFID, wattzhub, véhicule électrique, recharge, câble, prise. Noms de lieux et stations de recharge en France.'
+          prompt: 'Ceci est une conversation téléphonique avec un service client pour bornes de recharge véhicules électriques. Vocabulaire fréquent: bonjour, oui, non, merci, s\'il vous plaît, je voudrais, j\'ai besoin, problème, aide, recharger, charger, ma voiture, mon véhicule, borne de recharge, station de recharge, connecteur, prise, câble, RFID, badge, carte, application, app, wattzhub, ev24, Carrefour, relais, Paris, Lyon, Marseille, Bordeaux. Numéros: un, deux, trois, quatre, cinq, six, sept, huit, neuf, dix. Questions courantes: comment ça marche, ça ne fonctionne pas, c\'est en panne, je n\'arrive pas à, pouvez-vous m\'aider.'
         }
       }
     };
@@ -179,24 +179,32 @@ export function handleTwilioWebSocket(connection, logger) {
 
       case 'response.audio.done':
         logger.info('OpenAI audio response complete');
+        // Send a mark event to ensure Twilio plays all buffered audio before we consider response complete
+        if (streamSid && connection.socket.readyState === WebSocket.OPEN) {
+          connection.socket.send(JSON.stringify({
+            event: 'mark',
+            streamSid: streamSid,
+            mark: { name: 'response-complete' }
+          }));
+        }
         isResponseActive = false; // Mark that response is complete
         break;
 
       case 'input_audio_buffer.speech_started':
         logger.info('User started speaking');
-        // Clear Twilio's audio queue when user interrupts
-        if (streamSid) {
+        // Clear Twilio's audio buffer to stop AI audio playback
+        if (streamSid && connection.socket.readyState === WebSocket.OPEN) {
           connection.socket.send(JSON.stringify({
             event: 'clear',
             streamSid: streamSid
           }));
         }
-        // Cancel any ongoing OpenAI response when user interrupts (only if there's an active response)
+        // Cancel OpenAI's ongoing response so it stops generating
         if (isResponseActive && openAiWs?.readyState === WebSocket.OPEN) {
           openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
-          isResponseActive = false;
-          logger.info('Cancelled active OpenAI response due to user interruption');
+          logger.info('Cancelled OpenAI response due to user interruption');
         }
+        isResponseActive = false;
         break;
 
       case 'conversation.item.input_audio_transcription.completed':

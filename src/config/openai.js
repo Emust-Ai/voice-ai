@@ -1,14 +1,14 @@
 // OpenAI Realtime API Configuration
 export const OPENAI_CONFIG = {
   model: 'gpt-realtime',
-  voice: 'verse', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
+  voice: 'shimmer', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
   temperature: 0.6, // Lower temperature for faster, more consistent responses
-  max_response_output_tokens: 150, // Limit response length for faster audio generation
+  max_response_output_tokens: 4096, // Allow full responses without cutting off
   turn_detection: {
     type: 'server_vad',
-    threshold: 0.6, // Slightly higher threshold reduces false triggers from noise
-    prefix_padding_ms: 200, // Reduced from 300ms for faster turn start detection
-    silence_duration_ms: 300, // Reduced from 500ms - faster response after user stops speaking
+    threshold: 0.5, // Lower threshold to capture softer speech
+    prefix_padding_ms: 500, // More padding to capture beginning of words
+    silence_duration_ms: 700, // Wait longer to ensure user finished speaking
     create_response: true, // Ensure the model responds automatically after a turn.
     interrupt_response: true // Allow users to barge in and interrupt the model.
   },
