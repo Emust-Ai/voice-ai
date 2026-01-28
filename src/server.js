@@ -49,9 +49,23 @@ fastify.all('/incoming-call', async (request, reply) => {
   const protocol = request.headers['x-forwarded-proto'] || 'https';
   const wsUrl = `wss://${host}/media-stream`;
   
+  // Log caller's phone number
+  const callerNumber = request.body.From;
+  const twilioNumber = request.body.To;
+  const callSid = request.body.CallSid;
+  
+  console.log(`📞 Call from: ${callerNumber}`);
+  console.log('Full request body:', JSON.stringify(request.body, null, 2));
+  fastify.log.info({ 
+    from: callerNumber, 
+    to: twilioNumber, 
+    callSid: callSid 
+  }, 'Incoming call');
+  
   fastify.log.info(`Incoming call - WebSocket URL: ${wsUrl}`);
   
-  const twiml = generateTwiML(wsUrl);
+  const twiml = generateTwiML(wsUrl, callerNumber);
+  console.log('Generated TwiML:', twiml);
   
   reply.type('text/xml');
   return twiml;

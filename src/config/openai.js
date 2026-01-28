@@ -1,7 +1,7 @@
 // OpenAI Realtime API Configuration
 export const OPENAI_CONFIG = {
   model: 'gpt-realtime',
-  voice: 'shimmer', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
+  voice: 'alloy', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
   temperature: 0.6, // Lower temperature for faster, more consistent responses
   max_response_output_tokens: 4096, // Allow full responses without cutting off
   turn_detection: {

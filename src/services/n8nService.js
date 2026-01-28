@@ -37,6 +37,7 @@ export async function executeN8nTool(toolName, args, context = {}) {
         _context: {
           callSid: context.callSid,
           streamSid: context.streamSid,
+          callerNumber: context.callerNumber,
           timestamp: new Date().toISOString()
         }
       })

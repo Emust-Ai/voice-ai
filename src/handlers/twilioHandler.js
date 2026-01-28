@@ -16,6 +16,7 @@ export function handleTwilioWebSocket(connection, logger) {
   let openAiWs = null;
   let streamSid = null;
   let callSid = null;
+  let callerNumber = null;
   let isOpenAiReady = false;
   let audioQueue = [];
   let chatwootLogger = null;
@@ -105,7 +106,7 @@ export function handleTwilioWebSocket(connection, logger) {
       logger.info(`Tool arguments: ${JSON.stringify(args)}`);
       
       // Execute the n8n tool
-      const result = await executeN8nTool(name, args, { callSid, streamSid });
+      const result = await executeN8nTool(name, args, { callSid, streamSid, callerNumber });
       
       logger.info(`Tool ${name} result: ${JSON.stringify(result)}`);
       
@@ -325,9 +326,16 @@ export function handleTwilioWebSocket(connection, logger) {
         case 'start':
           streamSid = message.start.streamSid;
           callSid = message.start.callSid;
-          logger.info(`Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}`);
-          chatwootLogger = new ChatwootLogger(`twilio-${callSid}`, callSid);
-          logger.info('Conversation logging started');
+          
+          // Log the entire start message to debug
+          logger.info('Start message received:', JSON.stringify(message.start, null, 2));
+          
+          callerNumber = message.start.customParameters?.callerNumber || callSid;
+          logger.info(`Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}, Caller: ${callerNumber}`);
+          logger.info(`CustomParameters:`, message.start.customParameters);
+          
+          chatwootLogger = new ChatwootLogger(`twilio-${callerNumber}`, callSid);
+          logger.info(`Conversation logging started for ${callerNumber}`);
           break;
 
         case 'media':

@@ -292,6 +292,10 @@ export const TOOLS = [
           type: 'string',
           description: 'The Twilio call SID for reference'
         },
+        caller_number: {
+          type: 'string',
+          description: 'The phone number of the caller'
+        },
         user_id: {
           type: 'string',
           description: 'The user ID if known'
