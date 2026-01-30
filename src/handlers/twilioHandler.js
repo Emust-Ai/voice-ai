@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import twilio from 'twilio';
 import { OPENAI_CONFIG, VOICE_AGENT_INSTRUCTIONS } from '../config/openai.js';
 import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
@@ -124,6 +125,53 @@ export function handleTwilioWebSocket(connection, logger) {
       
       // Trigger OpenAI to continue the response
       openAiWs.send(JSON.stringify({ type: 'response.create' }));
+      
+      // If priority (human escalation) tool was called successfully, forward the call
+      if (name === 'priority' && result.success !== false) {
+        logger.info('Human escalation completed - preparing to forward call');
+        
+        // Wait for OpenAI to finish speaking the transfer message
+        setTimeout(async () => {
+          logger.info('Forwarding call using Twilio REST API');
+          
+          // Close Chatwoot logger first
+          if (chatwootLogger) {
+            await chatwootLogger.close();
+          }
+          
+          // Close OpenAI connection
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.close();
+          }
+          
+          // Use Twilio REST API to redirect the call
+          try {
+            const client = twilio(
+              process.env.TWILIO_ACCOUNT_SID,
+              process.env.TWILIO_AUTH_TOKEN
+            );
+            
+            // Redirect to our forward-call endpoint
+            const forwardUrl = `https://${process.env.PUBLIC_URL}/forward-call`;
+            logger.info(`Redirecting call ${callSid} to ${forwardUrl}`);
+            
+            await client.calls(callSid).update({
+              url: forwardUrl,
+              method: 'POST'
+            });
+            
+            logger.info(`Call ${callSid} redirected successfully`);
+            
+          } catch (error) {
+            logger.error('Error redirecting call:', error);
+            // Close socket on error
+            if (connection.socket.readyState === WebSocket.OPEN) {
+              connection.socket.close();
+            }
+          }
+          
+        }, 5000); // 5 seconds to allow transfer message to play
+      }
       
     } catch (error) {
       logger.error(`Error handling tool call ${name}:`, error);

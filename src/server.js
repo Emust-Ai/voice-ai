@@ -71,6 +71,24 @@ fastify.all('/incoming-call', async (request, reply) => {
   return twiml;
 });
 
+// Forward call endpoint - called by Twilio REST API redirect
+fastify.all('/forward-call', async (request, reply) => {
+  const forwardNumber = process.env.FORWARD_TO_NUMBER || '+21625522862';
+  const twilioNumber = process.env.TWILIO_PHONE_NUMBER || request.body?.To || request.body?.Called;
+  
+  fastify.log.info(`Forward call endpoint hit - dialing ${forwardNumber}`);
+  fastify.log.info(`Request body: ${JSON.stringify(request.body)}`);
+  
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial callerId="${twilioNumber}" timeout="60">${forwardNumber}</Dial>
+</Response>`;
+
+  fastify.log.info(`Returning TwiML: ${twiml}`);
+  reply.type('text/xml');
+  return twiml;
+});
+
 // WebSocket endpoint for Twilio Media Streams
 fastify.register(async function (fastify) {
   fastify.get('/media-stream', { websocket: true }, (connection, req) => {

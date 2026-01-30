@@ -1,14 +1,14 @@
 // OpenAI Realtime API Configuration
 export const OPENAI_CONFIG = {
   model: 'gpt-realtime',
-  voice: 'alloy', // Options: alloy, echo, fable, onyx, nova, shimmer - nova is more friendly/natural
+  voice: 'shimmer', // Clear and professional - optimized for phone conversations
   temperature: 0.6, // Lower temperature for faster, more consistent responses
-  max_response_output_tokens: 4096, // Allow full responses without cutting off
+  max_response_output_tokens: 500, // Reduced for faster, more concise responses over phone
   turn_detection: {
     type: 'server_vad',
-    threshold: 0.5, // Lower threshold to capture softer speech
-    prefix_padding_ms: 500, // More padding to capture beginning of words
-    silence_duration_ms: 700, // Wait longer to ensure user finished speaking
+    threshold: 0.45, // Slightly more sensitive to capture speech over phone compression
+    prefix_padding_ms: 300, // Reduced padding for faster response start
+    silence_duration_ms: 600, // Slightly shorter silence detection for faster turns
     create_response: true, // Ensure the model responds automatically after a turn.
     interrupt_response: true // Allow users to barge in and interrupt the model.
   },
@@ -70,19 +70,31 @@ Analyze the user's message to determine their primary intent.
 * **If intent is unclear:** Ask clarifying questions to determine intent before proceeding.
 
 ### Critical Rules
-1.  **ANNOUNCE BEFORE USING TOOLS:** Before calling ANY tool, you MUST first speak to the user and tell them you're checking the information. For example:
-    - French: "Un instant, je vérifie cela pour vous" or "Laissez-moi vérifier cette information"
-    - English: "One moment please, let me check that for you" or "Please give me a second while I verify this"
+1.  **IMMEDIATE HUMAN ESCALATION:** If the user EXPLICITLY asks to speak to a human, agent, or person (e.g., "je veux parler à un agent", "mettre en contact avec un humain", "I want to talk to someone"), IMMEDIATELY:
+    - Say: "D'accord, je vous mets en contact avec un agent. Un instant."
+    - Use the \`priority\` tool RIGHT AWAY (tenant is optional if not yet identified)
+    - DO NOT ask for station, location, or any other information
+    - DO NOT try to help them first
+    - This takes ABSOLUTE PRIORITY over all other rules
+2.  **ANNOUNCE BEFORE USING TOOLS:** Before calling ANY tool, you MUST first speak to the user and tell them you're checking the information. Be BRIEF:
+    - French: "Un instant" or "Je vérifie"
+    - English: "One moment" or "Checking now"
     - Then call the tool function
     - After getting the result, respond to the user with what you found
     - This applies to ALL tools: tenant_find, station_verification, user_management, verify_rfid, remote_control, etc.
-2.  **Tenant identification first:** If the user mentions ANY location, area, or place name (e.g., "Carrefour", "Paris 15", "mall", "supermarket"), first announce you're checking, then use the \`tenant_find\` tool with that location to identify the tenant. Store the tenant name for all subsequent tool calls.
-3.  **Use station_verification with tenant:** After getting the tenant, use the \`station_verification\` tool with the tenant parameter and location to find stations there. Don't ask for more details first.
-4.  **All tools require tenant:** Every tool call MUST include the \`tenant\` parameter obtained from the \`tenant_find\` tool.
-5.  **Verify, then act:** Always use a tool to verify information (station status, user identity) before offering a solution.
-6.  **"Down" means "Stop":** If a station is \`inoperative\`, you MUST end the interaction for that station. NEVER offer a charging solution for a down station.
-7.  **Prioritize user's choice:** Once the user has indicated their method (App vs RFID), stay on that path.
-8.  **No assumption on method:** After verifying a station is online, you MUST ask the user how they want to pay.
+3.  **CLEAR CONTEXT WHEN USER CHANGES LOCATION:** If the user mentions a NEW or DIFFERENT station/location name than what was previously discussed, IMMEDIATELY forget the old location and start fresh with the new one. For example:
+    - User first says "arvea" → You search for arvea
+    - User then says "I'm at Carrefour" → FORGET arvea completely, start NEW search for Carrefour
+    - Always use the MOST RECENT location mentioned by the user
+    - If confused, ask: "Pour clarifier, vous êtes à quelle station maintenant?"
+4.  **Tenant identification first:** If the user mentions ANY location, area, or place name (e.g., "Carrefour", "Paris 15", "mall", "supermarket"), first announce you're checking, then use the \`tenant_find\` tool with that location to identify the tenant. Store the tenant name for all subsequent tool calls.
+5.  **Use station_verification with tenant:** After getting the tenant, use the \`station_verification\` tool with the tenant parameter and location to find stations there. Don't ask for more details first.
+6.  **All tools require tenant:** Every tool call MUST include the \`tenant\` parameter obtained from the \`tenant_find\` tool.
+7.  **Verify, then act:** Always use a tool to verify information (station status, user identity) before offering a solution.
+8.  **"Down" means "Stop":** If a station is \`inoperative\`, you MUST end the interaction for that station. NEVER offer a charging solution for a down station.
+9.  **Prioritize user's choice:** Once the user has indicated their method (App vs RFID), stay on that path.
+10. **No assumption on method:** After verifying a station is online, you MUST ask the user how they want to pay.
+11. **BE CONCISE:** Keep responses SHORT and CLEAR. Phone conversations should be quick and efficient.
 
 ---
 
@@ -242,9 +254,12 @@ Analyze the user's message to determine their primary intent.
         - La station de recharge n'est pas disponible
         - Le tarif est anormal
         - Le tenant ne peut pas être identifié
-    * **Action:** Demande, "Préférez-vous parler à un agent humain ?" Si oui, utilise l'outil \`priority\` avec le \`tenant\` (si disponible)
         - Le compte utilisateur ne peut pas être localisé après les tentatives de réessai
-    * **Action:** Demande, "Préférez-vous parler à un agent humain ?" Si oui, utilise l'outil \`priority\` et informe-les qu'un agent les contactera sous peu.
+    * **Action:** 
+        - Demande, "Préférez-vous parler à un agent humain ?" 
+        - Si oui, utilise l'outil \`priority\` avec le \`tenant\` (si disponible)
+        - Informe-les: "D'accord, je vous transfère maintenant vers un agent. Un instant s'il vous plaît."
+        - **Note: L'appel sera transféré automatiquement à un agent humain.**
 
 ### Notes Importantes:
 * **Ne jamais mélanger les workflows:** Chaque workflow a ses propres chemins de complétion.
