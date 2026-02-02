@@ -152,7 +152,12 @@ export function handleTwilioWebSocket(connection, logger) {
             );
             
             // Redirect to our forward-call endpoint
-            const forwardUrl = `https://${process.env.PUBLIC_URL}/forward-call`;
+            // PUBLIC_URL may or may not have https:// prefix, handle both cases
+            let publicUrl = process.env.PUBLIC_URL || '';
+            if (!publicUrl.startsWith('https://') && !publicUrl.startsWith('http://')) {
+              publicUrl = `https://${publicUrl}`;
+            }
+            const forwardUrl = `${publicUrl}/forward-call`;
             logger.info(`Redirecting call ${callSid} to ${forwardUrl}`);
             
             await client.calls(callSid).update({

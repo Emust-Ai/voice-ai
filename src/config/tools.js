@@ -36,9 +36,6 @@ export const TOOLS = [
           type: 'string',
           description: 'The tenant name obtained from tenant_find tool'
         },
-    parameters: {
-      type: 'object',
-      properties: {
         station_name_or_location: {
           type: 'string',
           description: 'The name, ID, or area/location of the charging station to verify (e.g., "Station Paris 15", "Carrefour Montreuil", "Zone Commerciale Bercy")'
@@ -46,7 +43,7 @@ export const TOOLS = [
       },
       required: ['tenant', 'station_name_or_location']
     }
-  }}},
+  },
   {
     type: 'function',
     name: 'user_management',
