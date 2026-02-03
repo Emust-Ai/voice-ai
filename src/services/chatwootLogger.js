@@ -170,6 +170,25 @@ class ChatwootLogger {
           if (searchResponse.data.payload && searchResponse.data.payload.length > 0) {
             contactId = searchResponse.data.payload[0].id;
             console.log(`✅ Found existing contact with ID: ${contactId}`);
+            
+            // Update contact to ensure phone number is stored
+            try {
+              await axios.put(
+                `${this.chatwootUrl}/api/v1/accounts/${this.chatwootAccountId}/contacts/${contactId}`,
+                {
+                  phone_number: phoneNumber
+                },
+                {
+                  headers: {
+                    'api_access_token': this.chatwootApiToken,
+                    'Content-Type': 'application/json'
+                  }
+                }
+              );
+              console.log(`✅ Updated contact phone number: ${phoneNumber}`);
+            } catch (updateError) {
+              console.log(`⚠️ Could not update contact phone: ${updateError.message}`);
+            }
           } else {
             throw new Error('Could not create or find contact');
           }
