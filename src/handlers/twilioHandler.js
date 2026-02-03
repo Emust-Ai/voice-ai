@@ -22,6 +22,7 @@ export function handleTwilioWebSocket(connection, logger) {
   let audioQueue = [];
   let chatwootLogger = null;
   let isResponseActive = false; // Track if OpenAI is currently generating a response
+  let isConversationClosed = false; // Prevent multiple close calls
 
   // Connect to Azure OpenAI Realtime API
   const connectToOpenAI = () => {
@@ -126,56 +127,49 @@ export function handleTwilioWebSocket(connection, logger) {
       // Trigger OpenAI to continue the response
       openAiWs.send(JSON.stringify({ type: 'response.create' }));
       
-      // If priority (human escalation) tool was called successfully, forward the call
+      // If priority (human escalation) tool was called successfully, mark for hang up after user says goodbye
       if (name === 'priority' && result.success !== false) {
-        logger.info('Human escalation completed - preparing to forward call');
+        logger.info(`Human callback requested for caller ${callerNumber}. Reason: ${args.reason || 'Not specified'}`);
         
-        // Wait for OpenAI to finish speaking the transfer message
+        // Mark in chatwoot that human escalation was requested
+        if (chatwootLogger) {
+          chatwootLogger.markHumanEscalation();
+        }
+        // Don't hang up immediately - wait for user to say goodbye
+        // The call will end when the WebSocket closes (user hangs up) or after a longer timeout as safety
         setTimeout(async () => {
-          logger.info('Forwarding call using Twilio REST API');
-          
-          // Close Chatwoot logger first
-          if (chatwootLogger) {
-            await chatwootLogger.close();
-          }
-          
-          // Close OpenAI connection
-          if (openAiWs?.readyState === WebSocket.OPEN) {
-            openAiWs.close();
-          }
-          
-          // Use Twilio REST API to redirect the call
-          try {
-            const client = twilio(
-              process.env.TWILIO_ACCOUNT_SID,
-              process.env.TWILIO_AUTH_TOKEN
-            );
+          // Safety timeout - if call is still active after 60 seconds, end it
+          if (!isConversationClosed) {
+            logger.info('Safety timeout reached - ending call after human escalation');
             
-            // Redirect to our forward-call endpoint
-            // PUBLIC_URL may or may not have https:// prefix, handle both cases
-            let publicUrl = process.env.PUBLIC_URL || '';
-            if (!publicUrl.startsWith('https://') && !publicUrl.startsWith('http://')) {
-              publicUrl = `https://${publicUrl}`;
+            // Close Chatwoot logger first (only once)
+            if (chatwootLogger && !isConversationClosed) {
+              isConversationClosed = true;
+              await chatwootLogger.close();
             }
-            const forwardUrl = `${publicUrl}/forward-call`;
-            logger.info(`Redirecting call ${callSid} to ${forwardUrl}`);
             
-            await client.calls(callSid).update({
-              url: forwardUrl,
-              method: 'POST'
-            });
+            // Close OpenAI connection
+            if (openAiWs?.readyState === WebSocket.OPEN) {
+              openAiWs.close();
+            }
             
-            logger.info(`Call ${callSid} redirected successfully`);
-            
-          } catch (error) {
-            logger.error('Error redirecting call:', error);
-            // Close socket on error
-            if (connection.socket.readyState === WebSocket.OPEN) {
-              connection.socket.close();
+            // Use Twilio REST API to properly end the call
+            try {
+              const client = twilio(
+                process.env.TWILIO_ACCOUNT_SID,
+                process.env.TWILIO_AUTH_TOKEN
+              );
+              
+              await client.calls(callSid).update({
+                status: 'completed'
+              });
+              
+              logger.info(`Call ${callSid} ended via Twilio API after safety timeout`);
+            } catch (error) {
+              logger.error('Error ending call via Twilio API:', error);
             }
           }
-          
-        }, 5000); // 5 seconds to allow transfer message to play
+        }, 60000); // 60 seconds safety timeout - gives user time to say goodbye naturally
       }
       
     } catch (error) {
@@ -267,14 +261,45 @@ export function handleTwilioWebSocket(connection, logger) {
           if (chatwootLogger) {
             chatwootLogger.logUser(message.transcript);
           }
-        }
-        break;
-
-      case 'conversation.item.input_audio_transcription.completed':
-        if (message.transcript) {
-          logger.info(`User: ${message.transcript}`);
-          if (chatwootLogger) {
-            chatwootLogger.logUser(message.transcript);
+          
+          // Detect goodbye phrases to end the call
+          const transcript = message.transcript.toLowerCase();
+          const goodbyePhrases = ['au revoir', 'aurevoir', 'merci au revoir', 'bonne journée', 'bonne soirée', 'à bientôt', 'bye', 'goodbye', 'ciao', 'salut', 'merci beaucoup au revoir'];
+          const isGoodbye = goodbyePhrases.some(phrase => transcript.includes(phrase));
+          
+          if (isGoodbye) {
+            logger.info('Goodbye detected - will end call after AI response');
+            // Wait for AI to say goodbye back, then hang up
+            setTimeout(async () => {
+              logger.info('Ending call after goodbye');
+              
+              // Close Chatwoot logger first (only once)
+              if (chatwootLogger && !isConversationClosed) {
+                isConversationClosed = true;
+                await chatwootLogger.close();
+              }
+              
+              // Close OpenAI connection
+              if (openAiWs?.readyState === WebSocket.OPEN) {
+                openAiWs.close();
+              }
+              
+              // Use Twilio REST API to properly end the call
+              try {
+                const client = twilio(
+                  process.env.TWILIO_ACCOUNT_SID,
+                  process.env.TWILIO_AUTH_TOKEN
+                );
+                
+                await client.calls(callSid).update({
+                  status: 'completed'
+                });
+                
+                logger.info(`Call ${callSid} ended after goodbye`);
+              } catch (error) {
+                logger.error('Error ending call via Twilio API:', error);
+              }
+            }, 5000); // 5 seconds to let AI say goodbye back
           }
         }
         break;
@@ -416,7 +441,8 @@ export function handleTwilioWebSocket(connection, logger) {
   // Handle Twilio WebSocket close
   connection.socket.on('close', async () => {
     logger.info('Twilio WebSocket closed');
-    if (chatwootLogger) {
+    if (chatwootLogger && !isConversationClosed) {
+      isConversationClosed = true;
       await chatwootLogger.close();
     }
     if (openAiWs?.readyState === WebSocket.OPEN) {

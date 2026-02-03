@@ -27,6 +27,12 @@ class ChatwootLogger {
     this.chatwootApiToken = process.env.CHATWOOT_API_TOKEN;
     
     this.chatwootConversationId = null;
+    this.humanEscalationRequested = false; // Track if human agent was requested
+  }
+
+  // Mark that human escalation was requested
+  markHumanEscalation() {
+    this.humanEscalationRequested = true;
   }
 
   // Log user message
@@ -122,14 +128,18 @@ class ChatwootLogger {
 
       console.log(`📤 Sending conversation to Chatwoot (${this.messages.length} messages)...`);
 
+      // Extract phone number from sessionId (format: twilio-+33185412867)
+      const phoneNumber = this.sessionId.replace('twilio-', '');
+
       // Step 1: Create or get a contact
       console.log('📍 Step 1: Creating/Getting contact...');
       let contactId;
       try {
         const contactPayload = {
           inbox_id: parseInt(this.chatwootInboxId),
-          name: `Session ${this.sessionId.substring(0, 20)}`,
-          identifier: this.sessionId
+          name: phoneNumber,
+          identifier: this.sessionId,
+          phone_number: phoneNumber
         };
         console.log(`📦 Contact Payload:`, JSON.stringify(contactPayload, null, 2));
         
@@ -177,6 +187,7 @@ class ChatwootLogger {
         inbox_id: parseInt(this.chatwootInboxId),
         contact_id: String(contactId),
         status: 'open',
+        priority: this.humanEscalationRequested ? 'urgent' : null,
         additional_attributes: {}
       };
       console.log(`📦 Payload:`, JSON.stringify(conversationPayload, null, 2));
@@ -261,6 +272,162 @@ class ChatwootLogger {
     };
   }
 
+  // Generate AI summary of the conversation
+  async generateAISummary() {
+    if (this.messages.length === 0) {
+      return 'Aucun message dans la conversation.';
+    }
+
+    try {
+      // Build conversation text for summarization
+      const conversationText = this.messages
+        .map(msg => `${msg.role === 'user' ? 'Client' : 'Assistant'}: ${msg.text}`)
+        .join('\n');
+
+      // Use Azure OpenAI Chat Completion to generate summary
+      const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+      const chatApiKey = process.env.AZURE_OPENAI_CHAT_API_KEY || process.env.AZURE_OPENAI_API_KEY;
+      const chatDeployment = process.env.AZURE_OPENAI_CHAT_DEPLOYMENT || 'gpt-4o-mini';
+      const chatApiVersion = process.env.AZURE_OPENAI_CHAT_API_VERSION || '2024-12-01-preview';
+      
+      if (!endpoint || !chatApiKey) {
+        console.log('Azure OpenAI Chat not configured, using basic summary');
+        return this.generateBasicSummary();
+      }
+
+      console.log(`Generating AI summary using deployment: ${chatDeployment}`);
+      
+      const response = await axios.post(
+        `${endpoint}/openai/deployments/${chatDeployment}/chat/completions?api-version=${chatApiVersion}`,
+        {
+          messages: [
+            {
+              role: 'system',
+              content: `Tu es un assistant qui crée des résumés concis de conversations téléphoniques pour une équipe de support client EV24 (bornes de recharge électrique).
+
+Génère un résumé bref et actionnable en français avec:
+- 🎯 Motif de l'appel (1 ligne)
+- 📋 Problème/Demande du client (1-2 lignes)  
+- ✅ Ce qui a été fait par l'assistant (1-2 lignes)
+- ⚠️ Action requise (si le client a demandé un rappel humain ou si un problème reste non résolu)
+
+Sois concis - maximum 5-6 lignes au total.`
+            },
+            {
+              role: 'user',
+              content: conversationText
+            }
+          ],
+          max_tokens: 250,
+          temperature: 0.3
+        },
+        {
+          headers: {
+            'api-key': chatApiKey,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const summary = response.data.choices[0]?.message?.content || this.generateBasicSummary();
+      console.log(`✅ AI Summary generated: ${summary}`);
+      return summary;
+
+    } catch (error) {
+      console.error('Error generating AI summary:', error.response?.data || error.message);
+      console.log('Falling back to detailed basic summary');
+      return this.generateBasicSummary();
+    }
+  }
+
+  // Generate a basic summary without AI
+  generateBasicSummary() {
+    const userMessages = this.messages.filter(m => m.role === 'user').map(m => m.text.toLowerCase());
+    const allText = this.messages.map(m => m.text.toLowerCase()).join(' ');
+    
+    // Detect what the user needed
+    let userNeed = '';
+    if (allText.includes('humain') || allText.includes('agent') || allText.includes('parler')) {
+      userNeed = 'Demande de parler à un agent humain';
+    } else if (allText.includes('panne') || allText.includes('marche pas') || allText.includes('problème') || allText.includes('erreur')) {
+      userNeed = 'Signalement d\'un problème technique';
+    } else if (allText.includes('station') || allText.includes('borne')) {
+      userNeed = 'Question sur une borne de recharge';
+    } else if (allText.includes('rfid') || allText.includes('badge') || allText.includes('carte')) {
+      userNeed = 'Question sur carte RFID/badge';
+    } else if (allText.includes('paiement') || allText.includes('facture')) {
+      userNeed = 'Question sur paiement/facturation';
+    } else if (allText.includes('compte') || allText.includes('inscription')) {
+      userNeed = 'Question sur son compte';
+    } else {
+      userNeed = 'Demande d\'assistance générale';
+    }
+    
+    // Detect what was done
+    let actionDone = '';
+    if (allText.includes('recontacter') || allText.includes('rappel')) {
+      actionDone = 'Demande de rappel enregistrée';
+    } else if (allText.includes('vérifié') || allText.includes('vérification')) {
+      actionDone = 'Vérification effectuée';
+    } else if (allText.includes('résolu') || allText.includes('réglé')) {
+      actionDone = 'Problème résolu';
+    } else {
+      actionDone = 'Informations fournies';
+    }
+    
+    // Check if human callback was requested
+    const humanRequested = allText.includes('humain') || allText.includes('rappel') || allText.includes('recontacter');
+    
+    let summary = `📋 Besoin: ${userNeed}\n`;
+    summary += `✅ Action: ${actionDone}`;
+    
+    if (humanRequested) {
+      summary += `\n⚠️ Rappel humain demandé`;
+    }
+    
+    return summary;
+  }
+
+  // Update Chatwoot conversation custom attribute with summary
+  async updateChatwootSummary(summary) {
+    if (!this.chatwootConversationId) {
+      console.log('No Chatwoot conversation ID, cannot update summary');
+      return { success: false, reason: 'no_conversation_id' };
+    }
+
+    if (!this.chatwootUrl || !this.chatwootAccountId || !this.chatwootApiToken) {
+      console.log('Chatwoot not configured, cannot update summary');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    try {
+      const updateUrl = `${this.chatwootUrl}/api/v1/accounts/${this.chatwootAccountId}/conversations/${this.chatwootConversationId}/custom_attributes`;
+      console.log(`📝 Updating Chatwoot conversation summary...`);
+
+      await axios.post(
+        updateUrl,
+        {
+          custom_attributes: {
+            summary: summary
+          }
+        },
+        {
+          headers: {
+            'api_access_token': this.chatwootApiToken,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log(`✅ Chatwoot summary updated successfully`);
+      return { success: true };
+
+    } catch (error) {
+      console.error('Error updating Chatwoot summary:', error.response?.data || error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
   // Close and send to Chatwoot
   async close() {
     console.log(`Closing conversation log: ${this.sessionId}`);
@@ -268,6 +435,12 @@ class ChatwootLogger {
     
     // Send to Chatwoot
     const result = await this.sendToChatwoot();
+    
+    // Generate AI summary and update Chatwoot custom attribute
+    if (result.success && this.chatwootConversationId) {
+      const summary = await this.generateAISummary();
+      await this.updateChatwootSummary(summary);
+    }
     
     // Save final state
     this.saveToFile();

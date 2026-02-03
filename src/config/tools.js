@@ -273,7 +273,7 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'priority',
-    description: 'Escalate the call to a human agent. Use when user requests human support or when workflows fail.',
+    description: 'Request a callback from a human agent. Use when user requests human support or when workflows fail. IMPORTANT: After calling this tool, inform the user that human agents are available Monday to Friday from 9h00 to 17h00 (excluding weekends), and that a human agent will contact them back during these working hours. Then ask if there is anything else you can help with, and say goodbye politely when they are done.',
     parameters: {
       type: 'object',
       properties: {
@@ -283,7 +283,7 @@ export const TOOLS = [
         },
         reason: {
           type: 'string',
-          description: 'The reason for escalation'
+          description: 'The reason for requesting human callback'
         },
         call_sid: {
           type: 'string',
@@ -291,7 +291,7 @@ export const TOOLS = [
         },
         caller_number: {
           type: 'string',
-          description: 'The phone number of the caller'
+          description: 'The phone number of the caller - this is where the human agent will call back'
         },
         user_id: {
           type: 'string',
