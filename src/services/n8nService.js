@@ -2,7 +2,7 @@
 // Handles calling n8n workflows and returning results
 
 import { N8N_BASE_URL, TOOL_ENDPOINTS } from '../config/tools.js';
-import { APP_GUIDE } from '../config/appGuide.js';
+import { APP_GUIDE_SECTIONS } from '../config/appGuide.js';
 
 /**
  * Handle local tools that don't require n8n
@@ -12,12 +12,84 @@ import { APP_GUIDE } from '../config/appGuide.js';
  */
 function handleLocalTool(toolName, args) {
   if (toolName === 'get_app_help') {
+    const topic = (args.topic || 'general').toLowerCase();
+    
+    // Map topic keywords to section keys
+    const topicMap = {
+      'login': 'login',
+      'connexion': 'login',
+      'connect': 'login',
+      'create_account': 'account',
+      'account': 'account',
+      'compte': 'account',
+      'inscription': 'account',
+      'signup': 'account',
+      'sign_up': 'account',
+      'register': 'account',
+      'password': 'password',
+      'mot_de_passe': 'password',
+      'otp': 'otp',
+      'start_session': 'start_charging',
+      'start': 'start_charging',
+      'charging': 'start_charging',
+      'recharge': 'start_charging',
+      'demarrer': 'start_charging',
+      'session': 'start_charging',
+      'wallet': 'wallet',
+      'portefeuille': 'wallet',
+      'credit': 'wallet',
+      'payment': 'payment',
+      'paiement': 'payment',
+      'card': 'payment',
+      'carte': 'payment',
+      'badges': 'badges',
+      'badge': 'badges',
+      'rfid': 'badges',
+      'tag': 'badges',
+      'troubleshooting': 'troubleshooting',
+      'problem': 'troubleshooting',
+      'probleme': 'troubleshooting',
+      'error': 'troubleshooting',
+      'erreur': 'troubleshooting',
+      'bug': 'troubleshooting',
+      'crash': 'troubleshooting',
+      'qr': 'qr_code',
+      'qr_code': 'qr_code',
+      'scan': 'qr_code',
+      'navigation': 'navigation',
+      'menu': 'navigation',
+      'stations': 'find_stations',
+      'find': 'find_stations',
+      'map': 'find_stations',
+      'carte': 'find_stations',
+      'stop': 'stop_charging',
+      'arreter': 'stop_charging',
+      'vehicles': 'vehicles',
+      'car': 'vehicles',
+      'voiture': 'vehicles',
+      'faq': 'faq',
+      'general': 'general',
+      'download': 'download',
+      'install': 'download',
+      'telecharger': 'download'
+    };
+    
+    // Find the best matching section
+    let sectionKey = 'general';
+    for (const [keyword, key] of Object.entries(topicMap)) {
+      if (topic.includes(keyword)) {
+        sectionKey = key;
+        break;
+      }
+    }
+    
+    const section = APP_GUIDE_SECTIONS[sectionKey] || APP_GUIDE_SECTIONS.general;
+    
     return {
       success: true,
       data: {
-        guide: APP_GUIDE,
-        topic: args.topic || 'general',
-        message: 'Voici les informations sur l\'application Wattzhub CPO'
+        topic: sectionKey,
+        info: section
       }
     };
   }
