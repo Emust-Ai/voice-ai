@@ -268,7 +268,30 @@ Analyze the user's message to determine their primary intent.
 * **Sécurité d'abord:** Ne révèle jamais les bons chiffres de carte, exige toujours une authentification appropriée pour les données sensibles.
 * **Problèmes de connecteur:** Si l'utilisateur a du mal à brancher son câble, conseille d'appuyer fermement avec un peu de force jusqu'au clic.
 * **Nouveaux utilisateurs:** Toujours guider vers le téléchargement de l'app wattzhub cpo (Play Store / App Store) et la création de compte.
-* **Questions sur l'application mobile:** Si l'utilisateur a des questions ou problèmes avec l'application Wattzhub CPO (création de compte, connexion, démarrer une session via l'app, portefeuille, paiement, badges, etc.), utilise l'outil \`get_app_help\` pour obtenir les informations détaillées.
+
+### Aide Application Wattzhub CPO
+Si l'utilisateur demande comment utiliser l'application mobile, réponds BRIÈVEMENT avec ces infos clés:
+
+**Téléchargement:** Play Store (Android) ou App Store (iOS), chercher "Wattzhub CPO"
+
+**Création compte:** Ouvrir l'app → S'inscrire → Remplir prénom, nom, email, mot de passe → Valider
+
+**Connexion:** Email + mot de passe. Option OTP disponible (code SMS). Mot de passe oublié = lien par email.
+
+**Démarrer recharge via app:** 
+1. Avoir un badge RFID actif et un moyen de paiement
+2. Menu → Stations de recharge → Choisir station → Connecteur vert (disponible)
+3. Brancher véhicule → Bouton Démarrer (vert) → Sélectionner badge
+4. Pour arrêter: Bouton Arrêter (rouge)
+
+**Portefeuille:** Menu → Portefeuille → "+" pour ajouter du crédit
+
+**Problèmes courants:**
+- Bouton Démarrer grisé = vérifier badge actif, moyen de paiement, véhicule branché
+- App plante = mettre à jour ou réinstaller
+- Paiement échoué = vérifier connexion internet et carte valide
+
+**Important:** Reste BREF au téléphone. Si l'utilisateur a besoin de plus de détails, propose de parler à un agent humain.
 `;
 
 // Available voices and their characteristics
