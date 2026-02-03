@@ -2,6 +2,27 @@
 // Handles calling n8n workflows and returning results
 
 import { N8N_BASE_URL, TOOL_ENDPOINTS } from '../config/tools.js';
+import { APP_GUIDE } from '../config/appGuide.js';
+
+/**
+ * Handle local tools that don't require n8n
+ * @param {string} toolName - The name of the tool
+ * @param {object} args - The arguments passed to the tool
+ * @returns {object|null} - Result if handled locally, null otherwise
+ */
+function handleLocalTool(toolName, args) {
+  if (toolName === 'get_app_help') {
+    return {
+      success: true,
+      data: {
+        guide: APP_GUIDE,
+        topic: args.topic || 'general',
+        message: 'Voici les informations sur l\'application Wattzhub CPO'
+      }
+    };
+  }
+  return null;
+}
 
 /**
  * Execute an n8n tool by calling its webhook endpoint
@@ -11,6 +32,12 @@ import { N8N_BASE_URL, TOOL_ENDPOINTS } from '../config/tools.js';
  * @returns {Promise<object>} - The result from n8n
  */
 export async function executeN8nTool(toolName, args, context = {}) {
+  // Check if this is a local tool first
+  const localResult = handleLocalTool(toolName, args);
+  if (localResult) {
+    return localResult;
+  }
+
   const endpoint = TOOL_ENDPOINTS[toolName];
   
   if (!endpoint) {

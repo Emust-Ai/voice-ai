@@ -272,6 +272,21 @@ export const TOOLS = [
   },
   {
     type: 'function',
+    name: 'get_app_help',
+    description: 'Get help documentation for the Wattzhub CPO mobile application. Use this tool when the user asks questions about how to use the app, has problems with the app, needs help with account creation, login, starting sessions via the app, wallet, badges, payments, or any app-related issue. Returns detailed guidance in French.',
+    parameters: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          description: 'The specific topic the user needs help with. Examples: "login", "create_account", "start_session", "wallet", "payment", "badges", "troubleshooting", "qr_code", "general"'
+        }
+      },
+      required: ['topic']
+    }
+  },
+  {
+    type: 'function',
     name: 'priority',
     description: 'Request a callback from a human agent. Use when user requests human support or when workflows fail. IMPORTANT: After calling this tool, inform the user that human agents are available Monday to Friday from 9h00 to 17h00 (excluding weekends), and that a human agent will contact them back during these working hours. Then ask if there is anything else you can help with, and say goodbye politely when they are done.',
     parameters: {
@@ -316,5 +331,6 @@ export const TOOL_ENDPOINTS = {
   check_invoice: '/check-invoice',
   invoice_sending_agent: '/invoice-sending',
   charge_station_tariff: '/station-tariff',
+  get_app_help: 'local', // Handled locally, not via n8n
   priority: '/priority-escalation'
 };
