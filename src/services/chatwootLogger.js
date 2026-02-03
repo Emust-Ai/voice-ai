@@ -388,6 +388,44 @@ Sois concis - maximum 5-6 lignes au total.`
     return summary;
   }
 
+  // Toggle conversation priority to urgent (for human escalation)
+  async togglePriorityUrgent() {
+    if (!this.chatwootConversationId) {
+      console.log('No Chatwoot conversation ID, cannot toggle priority');
+      return { success: false, reason: 'no_conversation_id' };
+    }
+
+    if (!this.chatwootUrl || !this.chatwootAccountId || !this.chatwootApiToken) {
+      console.log('Chatwoot not configured, cannot toggle priority');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    try {
+      const priorityUrl = `${this.chatwootUrl}/api/v1/accounts/${this.chatwootAccountId}/conversations/${this.chatwootConversationId}/toggle_priority`;
+      console.log(`🚨 Toggling conversation priority to urgent...`);
+
+      await axios.post(
+        priorityUrl,
+        {
+          priority: 'urgent'
+        },
+        {
+          headers: {
+            'api_access_token': this.chatwootApiToken,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log(`✅ Conversation priority set to URGENT`);
+      return { success: true };
+
+    } catch (error) {
+      console.error('Error toggling priority:', error.response?.data || error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
   // Update Chatwoot conversation custom attribute with summary
   async updateChatwootSummary(summary) {
     if (!this.chatwootConversationId) {
@@ -435,6 +473,12 @@ Sois concis - maximum 5-6 lignes au total.`
     
     // Send to Chatwoot
     const result = await this.sendToChatwoot();
+    
+    // If human escalation was requested, toggle priority to urgent
+    if (result.success && this.chatwootConversationId && this.humanEscalationRequested) {
+      console.log('🚨 Human escalation was requested - setting priority to URGENT');
+      await this.togglePriorityUrgent();
+    }
     
     // Generate AI summary and update Chatwoot custom attribute
     if (result.success && this.chatwootConversationId) {
