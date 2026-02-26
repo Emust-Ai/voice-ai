@@ -71,6 +71,13 @@ fastify.all('/incoming-call', async (request, reply) => {
   return twiml;
 });
 
+// Stream ended endpoint - called by Twilio when the media stream ends
+fastify.all('/stream-ended', async (request, reply) => {
+  fastify.log.info('Stream ended callback received');
+  reply.type('text/xml');
+  return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+});
+
 // Forward call endpoint - called by Twilio REST API redirect
 fastify.all('/forward-call', async (request, reply) => {
   const forwardNumber = process.env.FORWARD_TO_NUMBER || '+21625522862';
