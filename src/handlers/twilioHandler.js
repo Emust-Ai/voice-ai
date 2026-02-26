@@ -22,6 +22,7 @@ export function handleTwilioWebSocket(connection, logger) {
   let chatwootLogger = null;
   let isResponseActive = false; // Track if OpenAI is currently generating a response
   let isConversationClosed = false; // Prevent multiple close calls
+  let echoCooldownUntil = 0; // Timestamp until which speech_started events are ignored (echo suppression)
 
   // Connect to Azure OpenAI Realtime API
   const connectToOpenAI = () => {
@@ -200,9 +201,16 @@ export function handleTwilioWebSocket(connection, logger) {
           }));
         }
         isResponseActive = false; // Mark that response is complete
+        // Set echo suppression cooldown - ignore speech_started for 500ms after AI stops
+        echoCooldownUntil = Date.now() + 500;
         break;
 
       case 'input_audio_buffer.speech_started':
+        // Echo suppression: ignore speech detection shortly after AI finishes speaking
+        if (Date.now() < echoCooldownUntil) {
+          logger.info('Ignoring speech_started during echo cooldown');
+          break;
+        }
         logger.info('User started speaking');
         // Clear Twilio's audio buffer to stop AI audio playback
         if (streamSid && connection.socket.readyState === WebSocket.OPEN) {

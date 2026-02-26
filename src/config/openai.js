@@ -6,7 +6,7 @@ export const OPENAI_CONFIG = {
   max_response_output_tokens: 600, // Allow slightly longer responses for natural phrasing with filler/empathy
   turn_detection: {
     type: 'server_vad',
-    threshold: 0.4, // More sensitive - catches soft-spoken callers and hesitant speech
+    threshold: 0.55, // Moderate - filters echo/noise but catches phone speech
     prefix_padding_ms: 350, // Slightly more padding to avoid cutting off the start of words
     silence_duration_ms: 700, // A bit more patience - real agents wait a beat before responding
     create_response: true, // Ensure the model responds automatically after a turn.
@@ -272,14 +272,19 @@ Analyze the user's message to determine their primary intent.
 
 * **Workflow d'Escalade Humaine:**
     * **Déclencheur:** 
-        - L'utilisateur est clairement frustré ou plusieurs workflows ont échoué
-        - La station de recharge n'est pas disponible
-        - Le tarif est anormal
-        - Le tenant ne peut pas être identifié
+        - L'utilisateur DEMANDE EXPLICITEMENT de parler à un humain/agent/collègue
+        - La station de recharge n'est pas disponible (inoperative)
+        - Le tenant ne peut pas être identifié après 2 tentatives
         - Le compte utilisateur ne peut pas être localisé après les tentatives de réessai
+        - L'authentification échoue après 2 tentatives
+    * **IMPORTANT - NE PAS ESCALADER si:**
+        - L'utilisateur dit simplement "je ne sais pas" ou semble confus → Aide-le patiemment
+        - L'utilisateur a besoin d'explications → Explique calmement, étape par étape
+        - L'utilisateur répète sa question → Reformule ta réponse plus clairement
+        - Tu peux encore aider l'utilisateur avec les informations disponibles
     * **Action:** 
-        - Acknowledge their frustration empathetically first: "Je comprends votre frustration, et je veux m'assurer que vous ayez la meilleure aide possible."
-        - Demande warmly, "Souhaitez-vous que je vous mette en contact avec un de mes collègues qui pourra vous aider davantage ?" 
+        - D'abord, DEMANDE TOUJOURS à l'utilisateur s'il souhaite parler à un collègue: "Souhaitez-vous que je vous mette en contact avec un de mes collègues ?"
+        - ATTENDS sa réponse. Ne présume JAMAIS qu'il veut être transféré.
         - Si oui, utilise l'outil \`priority\` avec le \`tenant\` (si disponible)
         - Informe-les warmly: "Très bien, je vous transfère tout de suite. Un petit instant, restez en ligne."
         - **Note: L'appel sera transféré automatiquement à un agent humain.**
