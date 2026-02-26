@@ -1,5 +1,4 @@
 import WebSocket from 'ws';
-import twilio from 'twilio';
 import { OPENAI_CONFIG, VOICE_AGENT_INSTRUCTIONS } from '../config/openai.js';
 import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
@@ -84,7 +83,7 @@ export function handleTwilioWebSocket(connection, logger) {
         input_audio_transcription: {
           model: 'whisper-1',
           language: 'fr',
-          prompt: 'Ceci est une conversation téléphonique avec un service client pour bornes de recharge véhicules électriques. Vocabulaire fréquent: bonjour, oui, non, merci, s\'il vous plaît, je voudrais, j\'ai besoin, problème, aide, recharger, charger, ma voiture, mon véhicule, borne de recharge, station de recharge, connecteur, prise, câble, RFID, badge, carte, application, app, wattzhub, ev24, Carrefour, relais, Paris, Lyon, Marseille, Bordeaux. Numéros: un, deux, trois, quatre, cinq, six, sept, huit, neuf, dix. Questions courantes: comment ça marche, ça ne fonctionne pas, c\'est en panne, je n\'arrive pas à, pouvez-vous m\'aider.'
+          prompt: 'Transcription d\'un appel téléphonique au service client ev24 (bornes de recharge pour véhicules électriques). L\'appelant est un client qui téléphone pour un problème de recharge, une question sur sa consommation ou une facture. Vocabulaire fréquent: bonjour, oui, non, merci, s\'il vous plaît, je voudrais, j\'ai besoin, j\'aimerais, d\'accord, voilà, euh, alors, problème, souci, aide, recharger, charger, démarrer, arrêter, ma voiture, mon véhicule, véhicule électrique, borne de recharge, station de recharge, connecteur, prise, câble, brancher, débrancher, RFID, badge, carte, numéro de badge, application, app, wattzhub, Wattzhub CPO, ev24, compte, identifiant, mot de passe, paiement, facture, consommation, historique, session, tarif, prix, kilowatt, kWh. Lieux: Carrefour, relais, Leclerc, Auchan, Lidl, Intermarché, centre commercial, parking, autoroute, aire de repos, Paris, Lyon, Marseille, Bordeaux, Toulouse, Lille, Nantes, Strasbourg, Montpellier, Nice. Arrondissements: Paris 1er, Paris 2ème, etc. Numéros épelés: un, deux, trois, quatre, cinq, six, sept, huit, neuf, dix, onze, douze, treize, quatorze, quinze, seize, dix-sept, dix-huit, dix-neuf, vingt. Phrases courantes: comment ça marche, ça ne fonctionne pas, c\'est en panne, je n\'arrive pas à, pouvez-vous m\'aider, je voudrais parler à quelqu\'un, est-ce que vous pouvez, je suis à, je me trouve à, la borne ne marche pas, le connecteur est bloqué, ma carte ne passe pas.'
         }
       }
     };
@@ -127,7 +126,7 @@ export function handleTwilioWebSocket(connection, logger) {
       // Trigger OpenAI to continue the response
       openAiWs.send(JSON.stringify({ type: 'response.create' }));
       
-      // If priority (human escalation) tool was called successfully, mark for hang up after user says goodbye
+      // If priority (human escalation) tool was called successfully, log it
       if (name === 'priority' && result.success !== false) {
         logger.info(`Human callback requested for caller ${callerNumber}. Reason: ${args.reason || 'Not specified'}`);
         
@@ -135,41 +134,6 @@ export function handleTwilioWebSocket(connection, logger) {
         if (chatwootLogger) {
           chatwootLogger.markHumanEscalation();
         }
-        // Don't hang up immediately - wait for user to say goodbye
-        // The call will end when the WebSocket closes (user hangs up) or after a longer timeout as safety
-        setTimeout(async () => {
-          // Safety timeout - if call is still active after 60 seconds, end it
-          if (!isConversationClosed) {
-            logger.info('Safety timeout reached - ending call after human escalation');
-            
-            // Close Chatwoot logger first (only once)
-            if (chatwootLogger && !isConversationClosed) {
-              isConversationClosed = true;
-              await chatwootLogger.close();
-            }
-            
-            // Close OpenAI connection
-            if (openAiWs?.readyState === WebSocket.OPEN) {
-              openAiWs.close();
-            }
-            
-            // Use Twilio REST API to properly end the call
-            try {
-              const client = twilio(
-                process.env.TWILIO_ACCOUNT_SID,
-                process.env.TWILIO_AUTH_TOKEN
-              );
-              
-              await client.calls(callSid).update({
-                status: 'completed'
-              });
-              
-              logger.info(`Call ${callSid} ended via Twilio API after safety timeout`);
-            } catch (error) {
-              logger.error('Error ending call via Twilio API:', error);
-            }
-          }
-        }, 60000); // 60 seconds safety timeout - gives user time to say goodbye naturally
       }
       
     } catch (error) {
@@ -260,46 +224,6 @@ export function handleTwilioWebSocket(connection, logger) {
           logger.info(`User: ${message.transcript}`);
           if (chatwootLogger) {
             chatwootLogger.logUser(message.transcript);
-          }
-          
-          // Detect goodbye phrases to end the call
-          const transcript = message.transcript.toLowerCase();
-          const goodbyePhrases = ['au revoir', 'aurevoir', 'merci au revoir', 'bonne journée', 'bonne soirée', 'à bientôt', 'bye', 'goodbye', 'ciao', 'salut', 'merci beaucoup au revoir'];
-          const isGoodbye = goodbyePhrases.some(phrase => transcript.includes(phrase));
-          
-          if (isGoodbye) {
-            logger.info('Goodbye detected - will end call after AI response');
-            // Wait for AI to say goodbye back, then hang up
-            setTimeout(async () => {
-              logger.info('Ending call after goodbye');
-              
-              // Close Chatwoot logger first (only once)
-              if (chatwootLogger && !isConversationClosed) {
-                isConversationClosed = true;
-                await chatwootLogger.close();
-              }
-              
-              // Close OpenAI connection
-              if (openAiWs?.readyState === WebSocket.OPEN) {
-                openAiWs.close();
-              }
-              
-              // Use Twilio REST API to properly end the call
-              try {
-                const client = twilio(
-                  process.env.TWILIO_ACCOUNT_SID,
-                  process.env.TWILIO_AUTH_TOKEN
-                );
-                
-                await client.calls(callSid).update({
-                  status: 'completed'
-                });
-                
-                logger.info(`Call ${callSid} ended after goodbye`);
-              } catch (error) {
-                logger.error('Error ending call via Twilio API:', error);
-              }
-            }, 5000); // 5 seconds to let AI say goodbye back
           }
         }
         break;
