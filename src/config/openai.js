@@ -6,9 +6,9 @@ export const OPENAI_CONFIG = {
   max_response_output_tokens: 600, // Allow slightly longer responses for natural phrasing with filler/empathy
   turn_detection: {
     type: 'server_vad',
-    threshold: 0.55, // Moderate - filters echo/noise but catches phone speech
-    prefix_padding_ms: 350, // Slightly more padding to avoid cutting off the start of words
-    silence_duration_ms: 700, // A bit more patience - real agents wait a beat before responding
+    threshold: 0.65, // Higher threshold to filter phone line noise/echo (was 0.55 - too sensitive)
+    prefix_padding_ms: 400, // More padding to avoid cutting off the start of words on phone
+    silence_duration_ms: 800, // More patience before responding - prevents cutting off slow speakers
     create_response: true, // Ensure the model responds automatically after a turn.
     interrupt_response: true // Allow users to barge in and interrupt the model.
   },

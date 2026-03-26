@@ -24,6 +24,27 @@ export function handleTwilioWebSocket(connection, logger) {
   let isConversationClosed = false; // Prevent multiple close calls
   let echoCooldownUntil = 0; // Timestamp until which speech_started events are ignored (echo suppression)
 
+  // Audio buffering - accumulate audio deltas and send in batches to prevent stuttering
+  let audioBuffer = [];
+  let audioBufferTimer = null;
+  const AUDIO_BUFFER_MS = 100; // Flush audio buffer every 100ms
+
+  const flushAudioBuffer = () => {
+    if (audioBuffer.length === 0) return;
+    if (!streamSid || connection.socket.readyState !== WebSocket.OPEN) {
+      audioBuffer = [];
+      return;
+    }
+    // Concatenate all buffered base64 audio chunks into one payload
+    const combinedPayload = audioBuffer.join('');
+    audioBuffer = [];
+    connection.socket.send(JSON.stringify({
+      event: 'media',
+      streamSid: streamSid,
+      media: { payload: combinedPayload }
+    }));
+  };
+
   // Connect to Azure OpenAI Realtime API
   const connectToOpenAI = () => {
     const azureUrl = getAzureRealtimeUrl();
@@ -91,10 +112,7 @@ export function handleTwilioWebSocket(connection, logger) {
 
     openAiWs.send(JSON.stringify(sessionConfig));
     logger.info('Session configuration sent to OpenAI with tools and transcription enabled');
-    
-    // Immediately mark as ready and send greeting without waiting for session.updated
-    isOpenAiReady = true;
-    processAudioQueue();
+    // Wait for session.updated event before marking ready (avoid race condition)
   };
 
   // Handle tool calls from OpenAI and execute n8n webhooks
@@ -174,24 +192,34 @@ export function handleTwilioWebSocket(connection, logger) {
       case 'session.updated':
         logger.info('OpenAI session updated');
         isOpenAiReady = true;
+        processAudioQueue(); // Process any audio that arrived before session was ready
         // Send initial greeting immediately - no delay
         sendInitialGreeting();
         break;
 
       case 'response.audio.delta':
         isResponseActive = true; // Mark that a response is being generated
-        // Send audio immediately to Twilio - no buffering for lowest latency
+        // Buffer audio deltas and send in batches to prevent stuttering from jitter
         if (message.delta && streamSid && connection.socket.readyState === WebSocket.OPEN) {
-          connection.socket.send(JSON.stringify({
-            event: 'media',
-            streamSid: streamSid,
-            media: { payload: message.delta }
-          }));
+          audioBuffer.push(message.delta);
+          // Start a flush timer if one isn't already running
+          if (!audioBufferTimer) {
+            audioBufferTimer = setTimeout(() => {
+              flushAudioBuffer();
+              audioBufferTimer = null;
+            }, AUDIO_BUFFER_MS);
+          }
         }
         break;
 
       case 'response.audio.done':
         logger.info('OpenAI audio response complete');
+        // Flush any remaining buffered audio immediately
+        if (audioBufferTimer) {
+          clearTimeout(audioBufferTimer);
+          audioBufferTimer = null;
+        }
+        flushAudioBuffer();
         // Send a mark event to ensure Twilio plays all buffered audio before we consider response complete
         if (streamSid && connection.socket.readyState === WebSocket.OPEN) {
           connection.socket.send(JSON.stringify({
@@ -201,8 +229,9 @@ export function handleTwilioWebSocket(connection, logger) {
           }));
         }
         isResponseActive = false; // Mark that response is complete
-        // Set echo suppression cooldown - ignore speech_started for 500ms after AI stops
-        echoCooldownUntil = Date.now() + 500;
+        // Set echo suppression cooldown - ignore speech_started for 1500ms after AI stops
+        // 500ms was too short and caused echo from the phone speaker to trigger interruptions
+        echoCooldownUntil = Date.now() + 1500;
         break;
 
       case 'input_audio_buffer.speech_started':
@@ -211,7 +240,19 @@ export function handleTwilioWebSocket(connection, logger) {
           logger.info('Ignoring speech_started during echo cooldown');
           break;
         }
+        // Also suppress interruptions while AI is actively streaming audio
+        // (echo from the phone speaker can trigger false speech_started events)
+        if (isResponseActive) {
+          logger.info('Ignoring speech_started during active AI response (likely echo)');
+          break;
+        }
         logger.info('User started speaking');
+        // Clear any buffered audio that hasn't been sent yet
+        audioBuffer = [];
+        if (audioBufferTimer) {
+          clearTimeout(audioBufferTimer);
+          audioBufferTimer = null;
+        }
         // Clear Twilio's audio buffer to stop AI audio playback
         if (streamSid && connection.socket.readyState === WebSocket.OPEN) {
           connection.socket.send(JSON.stringify({
@@ -220,7 +261,7 @@ export function handleTwilioWebSocket(connection, logger) {
           }));
         }
         // Cancel OpenAI's ongoing response so it stops generating
-        if (isResponseActive && openAiWs?.readyState === WebSocket.OPEN) {
+        if (openAiWs?.readyState === WebSocket.OPEN) {
           openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
           logger.info('Cancelled OpenAI response due to user interruption');
         }
