@@ -300,6 +300,25 @@ export const TOOLS = [
       },
       required: ['reason']
     }
+  },
+  {
+    type: 'function',
+    name: 'location',
+    description: 'Find the closest charging station to a given location. Provide the latitude and longitude of the place the user mentions. The agent should estimate the coordinates based on the location name (city, address, landmark, etc.).',
+    parameters: {
+      type: 'object',
+      properties: {
+        lat: {
+          type: 'number',
+          description: 'Latitude of the location (e.g., 48.8566 for Paris)'
+        },
+        lng: {
+          type: 'number',
+          description: 'Longitude of the location (e.g., 2.3522 for Paris)'
+        }
+      },
+      required: ['lat', 'lng']
+    }
   }
 ];
 
@@ -316,5 +335,6 @@ export const TOOL_ENDPOINTS = {
   check_invoice: '/check-invoice',
   invoice_sending_agent: '/invoice-sending',
   charge_station_tariff: '/station-tariff',
-  priority: '/priority-escalation'
+  priority: '/priority-escalation',
+  location: '/location'
 };
