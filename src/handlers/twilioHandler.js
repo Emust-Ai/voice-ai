@@ -3,6 +3,7 @@ import { OPENAI_CONFIG, VOICE_AGENT_INSTRUCTIONS } from '../config/openai.js';
 import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
 import ChatwootLogger from '../services/chatwootLogger.js';
+import { billVoiceUsage } from '../services/billingService.js';
 
 // Build Azure OpenAI Realtime WebSocket URL
 const getAzureRealtimeUrl = () => {
@@ -246,6 +247,23 @@ export function handleTwilioWebSocket(connection, logger) {
       case 'response.done':
         console.log('DEBUG: response.done event received');
         console.log('DEBUG: message.response?.output:', JSON.stringify(message.response?.output, null, 2));
+
+        // Bill token usage to Lago
+        if (message.response?.usage) {
+          const usage = message.response.usage;
+          billVoiceUsage(
+            process.env.LAGO_CUSTOMER_ID,
+            process.env.LAGO_SUBSCRIPTION_ID,
+            {
+              audioInputTokens: usage.input_token_details?.audio_tokens || 0,
+              audioOutputTokens: usage.output_token_details?.audio_tokens || 0,
+              textInputTokens: usage.input_token_details?.text_tokens || 0,
+              textOutputTokens: usage.output_token_details?.text_tokens || 0,
+            },
+            logger
+          );
+        }
+
         if (message.response?.output) {
           message.response.output.forEach(output => {
             console.log('DEBUG: output.type:', output.type);
