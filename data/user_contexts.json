@@ -1,0 +1,24 @@
+{
+  "+33159030154": {
+    "name": "Aziz",
+    "phoneNumber": "+33159030154",
+    "lastProblem": "Le client, Aziz, a appelé pour signaler que la borne à la station 'relais' ne fonctionnait toujours pas. Il a mentionné qu'il avait déjà contacté le service client à ce sujet auparavant, mais le problème persiste. Il n'a pas précisé de numéro d'identification ou d'autres informations de compte durant l'appel.",
+    "lastResolution": "Le représentant, Marc, a pris note du problème persistant et a informé Aziz qu'il allait escalader la situation à un agent humain pour une assistance plus approfondie. Le problème reste donc non résolu pour le moment, et une action de suivi est nécessaire pour obtenir une réponse définitive.",
+    "conversationSummaries": [
+      {
+        "date": "2026-03-30T10:24:06.405Z",
+        "summary": "Aziz a contacté le service client d'ev24 pour signaler un problème avec une borne de recharge à la station 'relais'. Après avoir clarifié la localisation, le représentant a découvert que la station 'ChargeStationOneR' était en panne. Aziz a été transféré à un agent humain pour obtenir de l'aide supplémentaire. Il n'a pas exprimé de frustration, mais a simplement accepté le transfert sans demander d'autres informations."
+      },
+      {
+        "date": "2026-03-30T10:25:22.834Z",
+        "summary": "Aziz a contacté le service client d'ev24 pour signaler que la borne de recharge à la station 'relais' ne fonctionnait toujours pas, un problème qu'il avait déjà signalé auparavant. Le représentant, Marc, a reconnu le problème et a promis de le transmettre à l'équipe technique pour une résolution. Aziz a exprimé sa frustration face à la situation, mais aucune solution immédiate n'a été trouvée lors de l'appel. Un suivi par e-mail a été convenu pour tenir Aziz informé des progrès."
+      },
+      {
+        "date": "2026-03-30T10:26:25.000Z",
+        "summary": "Aziz a contacté le service client ev24 pour signaler un problème persistant avec la borne à la station 'relais', qui ne fonctionne toujours pas malgré un précédent appel. Marc, le représentant, a reconnu le problème et a décidé d'escalader la situation à un agent humain pour une résolution. Aziz semble frustré par la situation, car il avait déjà signalé ce problème auparavant."
+      }
+    ],
+    "lastCallDate": "2026-03-30T10:26:25.000Z",
+    "callCount": 3
+  }
+}

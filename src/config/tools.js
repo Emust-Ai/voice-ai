@@ -319,6 +319,21 @@ export const TOOLS = [
       },
       required: ['lat', 'lng']
     }
+  },
+  {
+    type: 'function',
+    name: 'save_caller_info',
+    description: 'Save the caller\'s name when they introduce themselves or give you their name for the first time. Call this tool as soon as you learn the caller\'s name so we can remember them for future calls. Also use this to update the name if they correct it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        caller_name: {
+          type: 'string',
+          description: 'The full name of the caller as they stated it (e.g., "Jean Dupont", "Marie", "Ahmed Ben Ali")'
+        }
+      },
+      required: ['caller_name']
+    }
   }
 ];
 

@@ -304,10 +304,10 @@ class ChatwootLogger {
         .join('\n');
 
       // Use Azure OpenAI Chat Completion to generate summary
-      const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+      const endpoint = process.env.AZURE_OPENAI_CHAT_ENDPOINT || process.env.AZURE_OPENAI_ENDPOINT;
       const chatApiKey = process.env.AZURE_OPENAI_CHAT_API_KEY || process.env.AZURE_OPENAI_API_KEY;
       const chatDeployment = process.env.AZURE_OPENAI_CHAT_DEPLOYMENT || 'gpt-4o-mini';
-      const chatApiVersion = process.env.AZURE_OPENAI_CHAT_API_VERSION || '2024-12-01-preview';
+      const chatApiVersion = process.env.AZURE_OPENAI_CHAT_API_VERSION || '2025-01-01-preview';
       
       if (!endpoint || !chatApiKey) {
         console.log('Azure OpenAI Chat not configured, using basic summary');
@@ -322,22 +322,53 @@ class ChatwootLogger {
           messages: [
             {
               role: 'system',
-              content: `Tu es un assistant qui crée des résumés concis de conversations téléphoniques pour une équipe de support client EV24 (bornes de recharge électrique).
+              content: `Tu es un assistant qui crée des résumés DÉTAILLÉS et COMPLETS de conversations téléphoniques pour une équipe de support client EV24 (bornes de recharge électrique). Un agent humain ou un autre assistant IA lira ce résumé pour comprendre exactement ce qui s'est passé — il n'aura PAS accès à la conversation originale. Sois donc exhaustif.
 
-Génère un résumé bref et actionnable en français avec:
-- 🎯 Motif de l'appel (1 ligne)
-- 📋 Problème/Demande du client (1-2 lignes)  
-- ✅ Ce qui a été fait par l'assistant (1-2 lignes)
-- ⚠️ Action requise (si le client a demandé un rappel humain ou si un problème reste non résolu)
+Génère un résumé structuré et actionnable en français avec les sections suivantes :
 
-Sois concis - maximum 5-6 lignes au total.`
+📞 **Informations de l'appel :**
+- Nom du client (si mentionné)
+- Numéro de téléphone ou identifiant (si disponible)
+- Durée approximative / nombre d'échanges
+
+🎯 **Motif de l'appel :** (2-3 phrases)
+Décris précisément pourquoi le client a appelé. Quel était son besoin initial ?
+
+📋 **Détails du problème / de la demande :** (3-5 phrases)
+- Quelle station / borne / connecteur était concerné(e) ? (nom, ID, emplacement)
+- Quel réseau / tenant a été identifié ?
+- Quel symptôme ou erreur le client a décrit ?
+- Le client utilise l'app mobile ou une carte RFID ?
+- Numéro de badge RFID, ID utilisateur, ou autres identifiants mentionnés
+
+🔧 **Actions effectuées par l'assistant :** (3-5 phrases)
+- Quels outils ont été utilisés ? (tenant_find, station_verification, user_management, remote_control, etc.)
+- Quels résultats ont été obtenus ? (station opérative/inopérative, utilisateur trouvé/non trouvé, charge démarrée/échouée)
+- L'identité du client a-t-elle été vérifiée ? Comment ?
+
+✅ **Résultat final :** (1-2 phrases)
+- Le problème a-t-il été résolu ? Partiellement ? Pas du tout ?
+- Si résolu : quelle était la solution ?
+- Si non résolu : quel est le blocage ?
+
+⚠️ **Actions requises / Suivi :** (si applicable)
+- Un rappel humain a-t-il été demandé ?
+- Y a-t-il une action en attente ? (mise à jour de paiement, nouveau badge à activer, etc.)
+- Le client doit-il faire quelque chose de son côté ?
+
+💬 **Remarques / Contexte supplémentaire :**
+- Le client semblait-il frustré, pressé, confus ?
+- A-t-il mentionné des problèmes récurrents ou anciens ?
+- Tout autre détail utile pour un futur suivi
+
+Sois complet mais reste sous 1400 caractères maximum (contrainte technique Chatwoot).`
             },
             {
               role: 'user',
               content: conversationText
             }
           ],
-          max_tokens: 250,
+          max_tokens: 600,
           temperature: 0.3
         },
         {
@@ -361,47 +392,87 @@ Sois concis - maximum 5-6 lignes au total.`
 
   // Generate a basic summary without AI
   generateBasicSummary() {
-    const userMessages = this.messages.filter(m => m.role === 'user').map(m => m.text.toLowerCase());
+    const userMessages = this.messages.filter(m => m.role === 'user');
+    const assistantMessages = this.messages.filter(m => m.role === 'assistant');
     const allText = this.messages.map(m => m.text.toLowerCase()).join(' ');
     
-    // Detect what the user needed
-    let userNeed = '';
+    // Detect what the user needed (check multiple categories)
+    const needs = [];
     if (allText.includes('humain') || allText.includes('agent') || allText.includes('parler')) {
-      userNeed = 'Demande de parler à un agent humain';
-    } else if (allText.includes('panne') || allText.includes('marche pas') || allText.includes('problème') || allText.includes('erreur')) {
-      userNeed = 'Signalement d\'un problème technique';
-    } else if (allText.includes('station') || allText.includes('borne')) {
-      userNeed = 'Question sur une borne de recharge';
-    } else if (allText.includes('rfid') || allText.includes('badge') || allText.includes('carte')) {
-      userNeed = 'Question sur carte RFID/badge';
-    } else if (allText.includes('paiement') || allText.includes('facture')) {
-      userNeed = 'Question sur paiement/facturation';
-    } else if (allText.includes('compte') || allText.includes('inscription')) {
-      userNeed = 'Question sur son compte';
-    } else {
-      userNeed = 'Demande d\'assistance générale';
+      needs.push('Demande de parler à un agent humain');
+    }
+    if (allText.includes('panne') || allText.includes('marche pas') || allText.includes('problème') || allText.includes('erreur') || allText.includes('bloqué')) {
+      needs.push('Signalement d\'un problème technique');
+    }
+    if (allText.includes('démarrer') || allText.includes('recharger') || allText.includes('commencer')) {
+      needs.push('Démarrer une session de recharge');
+    }
+    if (allText.includes('arrêter') || allText.includes('stop') || allText.includes('terminer')) {
+      needs.push('Arrêter une session de recharge');
+    }
+    if (allText.includes('station') || allText.includes('borne')) {
+      needs.push('Question sur une borne de recharge');
+    }
+    if (allText.includes('rfid') || allText.includes('badge') || allText.includes('carte')) {
+      needs.push('Question sur carte RFID/badge');
+    }
+    if (allText.includes('paiement') || allText.includes('facture') || allText.includes('consommation')) {
+      needs.push('Question sur paiement/facturation/consommation');
+    }
+    if (allText.includes('compte') || allText.includes('inscription') || allText.includes('application') || allText.includes('app')) {
+      needs.push('Question sur son compte/application');
+    }
+    if (allText.includes('tarif') || allText.includes('prix') || allText.includes('coût')) {
+      needs.push('Question sur les tarifs');
+    }
+    if (needs.length === 0) {
+      needs.push('Demande d\'assistance générale');
     }
     
     // Detect what was done
-    let actionDone = '';
-    if (allText.includes('recontacter') || allText.includes('rappel')) {
-      actionDone = 'Demande de rappel enregistrée';
-    } else if (allText.includes('vérifié') || allText.includes('vérification')) {
-      actionDone = 'Vérification effectuée';
-    } else if (allText.includes('résolu') || allText.includes('réglé')) {
-      actionDone = 'Problème résolu';
-    } else {
-      actionDone = 'Informations fournies';
+    const actions = [];
+    if (allText.includes('recontacter') || allText.includes('rappel') || allText.includes('collègue')) {
+      actions.push('Demande de rappel/transfert enregistrée');
+    }
+    if (allText.includes('vérifié') || allText.includes('vérification') || allText.includes('je vérifie')) {
+      actions.push('Vérification effectuée dans le système');
+    }
+    if (allText.includes('résolu') || allText.includes('réglé') || allText.includes('c\'est fait') || allText.includes('démarré')) {
+      actions.push('Problème résolu / action exécutée');
+    }
+    if (allText.includes('télécharger') || allText.includes('application') || allText.includes('wattzhub')) {
+      actions.push('Guidage vers l\'application Wattzhub CPO');
+    }
+    if (actions.length === 0) {
+      actions.push('Informations fournies');
     }
     
-    // Check if human callback was requested
+    // Build detailed summary
     const humanRequested = allText.includes('humain') || allText.includes('rappel') || allText.includes('recontacter');
+    const duration = Math.round((new Date() - this.startTime) / 1000);
     
-    let summary = `📋 Besoin: ${userNeed}\n`;
-    summary += `✅ Action: ${actionDone}`;
+    let summary = `📞 Appel de ${duration} secondes — ${this.messages.length} messages échangés\n`;
+    summary += `🎯 Motif(s): ${needs.join(', ')}\n`;
+    
+    // Include first few user messages as context
+    if (userMessages.length > 0) {
+      summary += `📋 Le client a dit: "${userMessages[0]?.text?.substring(0, 150) || 'N/A'}"`;
+      if (userMessages.length > 1) {
+        summary += ` — puis: "${userMessages[1]?.text?.substring(0, 100) || ''}"`;
+      }
+      summary += '\n';
+    }
+    
+    summary += `🔧 Actions: ${actions.join(', ')}\n`;
+    
+    // Include last assistant response as resolution context
+    if (assistantMessages.length > 0) {
+      const lastResponse = assistantMessages[assistantMessages.length - 1]?.text?.substring(0, 150) || '';
+      summary += `✅ Dernière réponse: "${lastResponse}"\n`;
+    }
     
     if (humanRequested) {
-      summary += `\n⚠️ Rappel humain demandé`;
+      summary += `⚠️ Rappel humain demandé — à traiter en priorité`;
     }
     
     return summary;
@@ -465,7 +536,7 @@ Sois concis - maximum 5-6 lignes au total.`
         updateUrl,
         {
           custom_attributes: {
-            summary: summary
+            summary: summary.length > 1490 ? summary.substring(0, 1487) + '...' : summary
           }
         },
         {

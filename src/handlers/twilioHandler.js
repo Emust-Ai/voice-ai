@@ -4,6 +4,8 @@ import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
 import ChatwootLogger from '../services/chatwootLogger.js';
 import { billVoiceUsage } from '../services/billingService.js';
+import { lookupCaller, saveCallerName, saveCallerContext, generateCallerContextPrompt } from '../services/userContextService.js';
+import { generateConversationSummaryForContext } from '../services/conversationSummarizer.js';
 
 // Build Azure OpenAI Realtime WebSocket URL
 const getAzureRealtimeUrl = () => {
@@ -25,6 +27,7 @@ export function handleTwilioWebSocket(connection, logger) {
   let isConversationClosed = false; // Prevent multiple close calls
   let echoCooldownUntil = 0; // Timestamp until which speech_started events are ignored (echo suppression)
   let lastAudioSentAt = 0; // Track when AI audio is being sent (for echo suppression)
+  let callerContext = null; // Persistent user context from previous calls
 
   // Connect to Azure OpenAI Realtime API
   const connectToOpenAI = () => {
@@ -70,6 +73,16 @@ export function handleTwilioWebSocket(connection, logger) {
 
   // Initialize OpenAI session with configuration
   const initializeSession = () => {
+    // Build dynamic instructions with caller context
+    const callerContextPrompt = generateCallerContextPrompt(callerContext);
+    const dynamicInstructions = VOICE_AGENT_INSTRUCTIONS + '\n\n' + callerContextPrompt;
+    
+    if (callerContext?.name) {
+      logger.info(`Returning caller detected: ${callerContext.name} (${callerNumber}), call #${callerContext.callCount + 1}`);
+    } else {
+      logger.info(`New caller detected: ${callerNumber}`);
+    }
+
     const sessionConfig = {
       type: 'session.update',
       session: {
@@ -77,7 +90,7 @@ export function handleTwilioWebSocket(connection, logger) {
         input_audio_format: 'g711_ulaw',
         output_audio_format: 'g711_ulaw',
         voice: OPENAI_CONFIG.voice,
-        instructions: VOICE_AGENT_INSTRUCTIONS,
+        instructions: dynamicInstructions,
         modalities: ['text', 'audio'],
         temperature: OPENAI_CONFIG.temperature,
         max_response_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 150,
@@ -105,6 +118,25 @@ export function handleTwilioWebSocket(connection, logger) {
     try {
       const args = JSON.parse(argsString);
       logger.info(`Tool arguments: ${JSON.stringify(args)}`);
+
+      // Handle save_caller_info locally (not via n8n)
+      if (name === 'save_caller_info') {
+        const savedContext = saveCallerName(callerNumber, args.caller_name);
+        callerContext = savedContext;
+        logger.info(`Saved caller name: ${args.caller_name} for ${callerNumber}`);
+        
+        const toolResponse = {
+          type: 'conversation.item.create',
+          item: {
+            type: 'function_call_output',
+            call_id: call_id,
+            output: JSON.stringify({ success: true, message: `Caller name "${args.caller_name}" saved successfully.` })
+          }
+        };
+        openAiWs.send(JSON.stringify(toolResponse));
+        openAiWs.send(JSON.stringify({ type: 'response.create' }));
+        return;
+      }
       
       // Execute the n8n tool
       const result = await executeN8nTool(name, args, { callSid, streamSid, callerNumber });
@@ -369,6 +401,14 @@ export function handleTwilioWebSocket(connection, logger) {
           logger.info(`Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}, Caller: ${callerNumber}`);
           logger.info(`CustomParameters:`, message.start.customParameters);
           
+          // Look up caller context from persistent store
+          callerContext = lookupCaller(callerNumber);
+          if (callerContext) {
+            logger.info(`Found existing context for ${callerNumber}: name=${callerContext.name}, calls=${callerContext.callCount}`);
+          } else {
+            logger.info(`No existing context for ${callerNumber} — new caller`);
+          }
+          
           chatwootLogger = new ChatwootLogger(`twilio-${callerNumber}`, callSid);
           logger.info(`Conversation logging started for ${callerNumber}`);
           break;
@@ -398,6 +438,22 @@ export function handleTwilioWebSocket(connection, logger) {
   // Handle Twilio WebSocket close
   connection.socket.on('close', async () => {
     logger.info('Twilio WebSocket closed');
+    
+    // Save conversation context for future calls
+    if (callerNumber && chatwootLogger) {
+      try {
+        const summary = await generateConversationSummaryForContext(chatwootLogger.messages);
+        saveCallerContext(callerNumber, {
+          lastProblem: summary.lastProblem || null,
+          lastResolution: summary.lastResolution || null,
+          conversationSummary: summary.conversationSummary || null
+        });
+        logger.info(`Saved conversation context for ${callerNumber}`);
+      } catch (err) {
+        logger.error(`Failed to save conversation context: ${err.message}`);
+      }
+    }
+    
     if (chatwootLogger && !isConversationClosed) {
       isConversationClosed = true;
       await chatwootLogger.close();
