@@ -7,6 +7,18 @@ const __dirname = path.dirname(__filename);
 const DATA_FILE = path.join(__dirname, '..', '..', 'data', 'user_contexts.json');
 
 /**
+ * Known callers configuration.
+ * Maps phone numbers to pre-configured caller data.
+ * These callers skip the name question and have an auto-assigned tenant.
+ */
+const KNOWN_CALLERS = {
+  '+33644643789': {
+    name: null,
+    tenant: 'borneco',
+  },
+};
+
+/**
  * User Context Service
  * Manages persistent caller context stored in a JSON file.
  * Maps phone numbers to user profiles (name, last problem, call history).
@@ -57,9 +69,28 @@ function writeContextStore(store) {
  */
 export function lookupCaller(phoneNumber) {
   if (!phoneNumber) return null;
-  const store = readContextStore();
-  // Normalize the phone number (remove spaces, ensure + prefix)
   const normalized = normalizePhone(phoneNumber);
+
+  // Check if this is a known/pre-configured caller
+  const knownCaller = KNOWN_CALLERS[normalized];
+  if (knownCaller) {
+    const store = readContextStore();
+    const existing = store[normalized] || {
+      name: knownCaller.name,
+      phoneNumber: normalized,
+      lastProblem: null,
+      lastResolution: null,
+      conversationSummaries: [],
+      lastCallDate: null,
+      callCount: 0
+    };
+    // Always ensure known caller fields are set
+    if (knownCaller.name) existing.name = existing.name || knownCaller.name;
+    existing.tenant = knownCaller.tenant;
+    return existing;
+  }
+
+  const store = readContextStore();
   return store[normalized] || null;
 }
 
@@ -136,6 +167,23 @@ export function saveCallerName(phoneNumber, name) {
  * Returns a string to prepend/append to the main system prompt.
  */
 export function generateCallerContextPrompt(callerContext) {
+  // Known caller with auto-tenant but no name — skip the name question
+  if (callerContext?.tenant && !callerContext.name) {
+    const lines = [];
+    lines.push(`### AUTO-TENANT CONFIGURATION`);
+    lines.push(`This caller has a pre-assigned tenant: **${callerContext.tenant}**`);
+    lines.push(`- **DO NOT use the \`tenant_find\` tool for this caller.** Always use tenant = "${callerContext.tenant}" directly in ALL tool calls.`);
+    lines.push(`- When the caller mentions a station or location, skip tenant identification and go straight to \`station_verification\` (or other tools) with tenant = "${callerContext.tenant}".`);
+    lines.push('');
+    lines.push(`### Caller Context`);
+    lines.push(`This is a known caller but we do not have their personal name on file.`);
+    lines.push(`- **DO NOT ask for their name.** Skip the name question entirely.`);
+    lines.push(`- Greet them warmly without asking for a name: "Bonjour ! Ici Marc, du service client ev24. Comment est-ce que je peux vous aider aujourd'hui ?"`);
+    lines.push(`- If the caller spontaneously gives their name during the conversation, you may call the \`save_caller_info\` tool to remember it for next time, but NEVER ask for it proactively.`);
+    lines.push(`- Proceed directly to helping them with their request.`);
+    return lines.join('\n');
+  }
+
   if (!callerContext || !callerContext.name) {
     // New / unknown caller
     return `
@@ -152,6 +200,16 @@ This is a NEW caller whose phone number is not yet in our system.
 
   // Returning caller — build personalized context
   const lines = [];
+
+  // Auto-tenant: if the caller has a pre-assigned tenant, inject special instructions
+  if (callerContext.tenant) {
+    lines.push(`### AUTO-TENANT CONFIGURATION`);
+    lines.push(`This caller has a pre-assigned tenant: **${callerContext.tenant}**`);
+    lines.push(`- **DO NOT use the \`tenant_find\` tool for this caller.** Always use tenant = "${callerContext.tenant}" directly in ALL tool calls.`);
+    lines.push(`- When the caller mentions a station or location, skip tenant identification and go straight to \`station_verification\` (or other tools) with tenant = "${callerContext.tenant}".`);
+    lines.push('');
+  }
+
   lines.push(`### Caller Context — RETURNING CALLER`);
   lines.push(`This caller has contacted us before. Use the information below to provide a warm, personalized experience. Reference their history naturally — don't just list facts, weave them into the conversation like a real agent who remembers them.`);
   lines.push('');
