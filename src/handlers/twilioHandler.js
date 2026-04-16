@@ -125,6 +125,11 @@ export function handleTwilioWebSocket(connection, logger) {
         callerContext = savedContext;
         logger.info(`Saved caller name: ${args.caller_name} for ${callerNumber}`);
         
+        // Update Chatwoot logger so the contact uses the real name
+        if (chatwootLogger) {
+          chatwootLogger.setCallerName(args.caller_name);
+        }
+        
         const toolResponse = {
           type: 'conversation.item.create',
           item: {
@@ -410,6 +415,10 @@ export function handleTwilioWebSocket(connection, logger) {
           }
           
           chatwootLogger = new ChatwootLogger(`twilio-${callerNumber}`, callSid);
+          // If we already know the caller's name, set it on the logger for Chatwoot
+          if (callerContext?.name) {
+            chatwootLogger.setCallerName(callerContext.name);
+          }
           logger.info(`Conversation logging started for ${callerNumber}`);
           break;
 

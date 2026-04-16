@@ -28,6 +28,12 @@ class ChatwootLogger {
     
     this.chatwootConversationId = null;
     this.humanEscalationRequested = false; // Track if human agent was requested
+    this.callerName = null; // Will be set when caller's name is learned
+  }
+
+  // Set the caller's real name (used for Chatwoot contact instead of phone number)
+  setCallerName(name) {
+    this.callerName = name;
   }
 
   // Mark that human escalation was requested
@@ -133,11 +139,12 @@ class ChatwootLogger {
 
       // Step 1: Create or get a contact
       console.log('📍 Step 1: Creating/Getting contact...');
+      const contactDisplayName = this.callerName || phoneNumber;
       let contactId;
       try {
         const contactPayload = {
           inbox_id: parseInt(this.chatwootInboxId),
-          name: phoneNumber,
+          name: contactDisplayName,
           identifier: this.sessionId,
           phone_number: phoneNumber
         };
@@ -171,11 +178,12 @@ class ChatwootLogger {
             contactId = searchResponse.data.payload[0].id;
             console.log(`✅ Found existing contact with ID: ${contactId}`);
             
-            // Update contact to ensure phone number is stored
+            // Update contact to ensure phone number and name are up to date
             try {
               await axios.put(
                 `${this.chatwootUrl}/api/v1/accounts/${this.chatwootAccountId}/contacts/${contactId}`,
                 {
+                  name: contactDisplayName,
                   phone_number: phoneNumber
                 },
                 {

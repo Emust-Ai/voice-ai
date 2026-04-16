@@ -150,7 +150,7 @@ export const TOOLS = [
           description: 'The RFID card number if applicable'
         }
       },
-      required: ['tenant', 'station_id', 'connector_id', 'action', 'rfid_number']
+      required: ['tenant', 'station_id', 'connector_id', 'action', 'rfid_number','user_id']
     }
   },
 
