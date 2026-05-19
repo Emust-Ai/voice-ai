@@ -86,7 +86,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
         input_audio_transcription: {
           model: 'whisper-1',
           language: 'fr',
-          prompt: 'Vocabulaire: relais, borne de recharge, station, Carrefour, connecteur, RFID, wattzhub, véhicule électrique, recharge, câble, prise. Noms de lieux et stations de recharge en France.'
+          prompt: 'Service client ev24. Vocabulaire: borne, station, connecteur, RFID, Wattzhub, BornEco, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
         }
       }
     };
@@ -101,6 +101,14 @@ export function handleWebBrowserWebSocket(connection, logger) {
       connection.socket.send(JSON.stringify(message));
     }
   };
+
+  const createVoiceResponseEvent = () => ({
+    type: 'response.create',
+    response: {
+      modalities: ['text', 'audio'],
+      voice: OPENAI_CONFIG.voice
+    }
+  });
 
   // Handle tool calls from OpenAI
   const handleToolCall = async (toolCall) => {
@@ -135,7 +143,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(toolResponse));
-      openAiWs.send(JSON.stringify({ type: 'response.create' }));
+      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
       
     } catch (error) {
       logger.error(`Error handling tool call ${name}:`, error);
@@ -154,7 +162,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(errorResponse));
-      openAiWs.send(JSON.stringify({ type: 'response.create' }));
+      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
     }
   };
 
@@ -293,10 +301,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
   // Send initial greeting
   const sendInitialGreeting = () => {
-    const greetingEvent = {
-      type: 'response.create'
-    };
-    openAiWs.send(JSON.stringify(greetingEvent));
+    openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
     logger.info('Initial greeting triggered (Web Client)');
   };
 

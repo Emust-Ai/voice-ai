@@ -15,6 +15,8 @@ const KNOWN_CALLERS = {
   '+33644643789': {
     name: null,
     tenant: 'borneco',
+    callerType: 'cpo',
+    label: 'cpo-borneco',
   },
 };
 
@@ -87,6 +89,9 @@ export function lookupCaller(phoneNumber) {
     // Always ensure known caller fields are set
     if (knownCaller.name) existing.name = existing.name || knownCaller.name;
     existing.tenant = knownCaller.tenant;
+    existing.callerType = knownCaller.callerType || 'known';
+    existing.label = knownCaller.label || null;
+    existing.isKnownCaller = true;
     return existing;
   }
 
@@ -174,12 +179,16 @@ export function generateCallerContextPrompt(callerContext) {
     lines.push(`This caller has a pre-assigned tenant: **${callerContext.tenant}**`);
     lines.push(`- **DO NOT use the \`tenant_find\` tool for this caller.** Always use tenant = "${callerContext.tenant}" directly in ALL tool calls.`);
     lines.push(`- When the caller mentions a station or location, skip tenant identification and go straight to \`station_verification\` (or other tools) with tenant = "${callerContext.tenant}".`);
+    if (callerContext.callerType === 'cpo') {
+      lines.push(`- This is a known CPO caller profile. Mention the tenant naturally when greeting (e.g., "support ev24 pour BornEco").`);
+      lines.push(`- Early in the call, ask for the caller's full name and run \`user_management\` with tenant = "${callerContext.tenant}" to verify the user profile before sensitive actions.`);
+    }
     lines.push('');
     lines.push(`### Caller Context`);
     lines.push(`This is a known caller but we do not have their personal name on file.`);
-    lines.push(`- **DO NOT ask for their name.** Skip the name question entirely.`);
-    lines.push(`- Greet them warmly without asking for a name: "Bonjour ! Ici Marc, du service client ev24. Comment est-ce que je peux vous aider aujourd'hui ?"`);
-    lines.push(`- If the caller spontaneously gives their name during the conversation, you may call the \`save_caller_info\` tool to remember it for next time, but NEVER ask for it proactively.`);
+    lines.push(`- Ask for the caller's name early so you can verify their profile for this tenant.`);
+    lines.push(`- Example greeting: "Bonjour ! Ici Marc, du service client ev24${callerContext.callerType === 'cpo' ? ' pour BornEco' : ''}. Puis-je avoir votre nom pour vérification rapide ?"`);
+    lines.push(`- As soon as they provide their name, call the \`save_caller_info\` tool so future calls are faster.`);
     lines.push(`- Proceed directly to helping them with their request.`);
     return lines.join('\n');
   }
@@ -275,6 +284,9 @@ This is a NEW caller whose phone number is not yet in our system.
   lines.push(`- If their issue seems related to a previous one, connect the dots: "C'est peut-être lié à ce qu'on avait vu la dernière fois..."`);
   lines.push(`- If the caller gives you an updated name or corrects their name, call the \`save_caller_info\` tool to update it.`);
   lines.push(`- Use their name occasionally during the conversation (not every sentence) to keep it personal.`);
+  if (callerContext.callerType === 'cpo' && callerContext.tenant) {
+    lines.push(`- This is a CPO known-caller profile: quickly confirm identity and run \`user_management\` with tenant = "${callerContext.tenant}" before sensitive actions.`);
+  }
 
   return lines.join('\n');
 }
@@ -282,6 +294,16 @@ This is a NEW caller whose phone number is not yet in our system.
 // Normalize phone number to a consistent format
 function normalizePhone(phone) {
   if (!phone) return '';
-  // Remove spaces, dashes, parentheses
-  return phone.replace(/[\s\-()]/g, '');
+  let normalized = String(phone).trim();
+  normalized = normalized.replace(/[\s\-().]/g, '');
+
+  if (normalized.startsWith('00')) {
+    normalized = `+${normalized.slice(2)}`;
+  }
+
+  if (!normalized.startsWith('+') && /^\d{8,15}$/.test(normalized)) {
+    normalized = `+${normalized}`;
+  }
+
+  return normalized;
 }

@@ -27,7 +27,25 @@ export function handleTwilioWebSocket(connection, logger) {
   let isConversationClosed = false; // Prevent multiple close calls
   let echoCooldownUntil = 0; // Timestamp until which speech_started events are ignored (echo suppression)
   let lastAudioSentAt = 0; // Track when AI audio is being sent (for echo suppression)
+  let responseStartedAt = 0; // Track when the current AI utterance started
+  let waitingForPlaybackDrain = false; // Wait for Twilio mark before accepting interruption
   let callerContext = null; // Persistent user context from previous calls
+
+  const parseMs = (value, fallback) => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const ECHO_COOLDOWN_MS = parseMs(process.env.ECHO_COOLDOWN_MS, 1800);
+  const MIN_BARGE_IN_MS = parseMs(process.env.MIN_BARGE_IN_MS, 1200);
+  const ACTIVE_AUDIO_GUARD_MS = parseMs(process.env.ACTIVE_AUDIO_GUARD_MS, 650);
+
+  const createVoiceResponseEvent = () => ({
+    type: 'response.create',
+    response: {
+      modalities: ['text', 'audio'],
+      voice: OPENAI_CONFIG.voice
+    }
+  });
 
   // Connect to Azure OpenAI Realtime API
   const connectToOpenAI = () => {
@@ -99,7 +117,7 @@ export function handleTwilioWebSocket(connection, logger) {
         input_audio_transcription: {
           model: 'whisper-1',
           language: 'fr',
-          prompt: 'Appel service client ev24, bornes de recharge véhicules électriques, Wattzhub CPO. Vocabulaire: borne, station, connecteur, prise, câble, RFID, badge, carte, recharger, démarrer, arrêter, kWh, facture, consommation, historique, paiement, tarif, application, compte. Lieux: Carrefour, relais, Leclerc, Auchan, Intermarché, parking, autoroute, Paris, Lyon, Marseille, Bordeaux, Toulouse. Réseaux: Borneco, Bornéco, ev24, Wattzhub, Horizon. Stations: Domaine de la Corniche, Station Relais. Phrases: ça ne marche pas, en panne, problème, souci, aide, je voudrais, pouvez-vous, ma borne, le connecteur est bloqué.'
+          prompt: 'Service client ev24 (bornes de recharge). Noms importants: BornEco, Borneco, Wattzhub, relais, Carrefour. Mots: borne, station, connecteur, RFID, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
         }
       }
     };
@@ -139,7 +157,7 @@ export function handleTwilioWebSocket(connection, logger) {
           }
         };
         openAiWs.send(JSON.stringify(toolResponse));
-        openAiWs.send(JSON.stringify({ type: 'response.create' }));
+        openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
         return;
       }
       
@@ -161,7 +179,7 @@ export function handleTwilioWebSocket(connection, logger) {
       openAiWs.send(JSON.stringify(toolResponse));
       
       // Trigger OpenAI to continue the response
-      openAiWs.send(JSON.stringify({ type: 'response.create' }));
+      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
       
       // If priority (human escalation) tool was called successfully, log it
       if (name === 'priority' && result.success !== false) {
@@ -190,7 +208,7 @@ export function handleTwilioWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(errorResponse));
-      openAiWs.send(JSON.stringify({ type: 'response.create' }));
+      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
     }
   };
 
@@ -216,7 +234,11 @@ export function handleTwilioWebSocket(connection, logger) {
         break;
 
       case 'response.audio.delta':
-        isResponseActive = true; // Mark that a response is being generated
+        if (!isResponseActive) {
+          responseStartedAt = Date.now();
+        }
+        isResponseActive = true;
+        waitingForPlaybackDrain = true;
         lastAudioSentAt = Date.now();
         // Send audio immediately to Twilio - Twilio handles its own jitter buffer
         if (message.delta && streamSid && connection.socket.readyState === WebSocket.OPEN) {
@@ -237,25 +259,43 @@ export function handleTwilioWebSocket(connection, logger) {
             streamSid: streamSid,
             mark: { name: 'response-complete' }
           }));
+        } else {
+          waitingForPlaybackDrain = false;
+          isResponseActive = false;
+          echoCooldownUntil = Date.now() + ECHO_COOLDOWN_MS;
         }
-        isResponseActive = false; // Mark that response is complete
-        // Set echo suppression cooldown - ignore speech_started for 1200ms after AI stops
-        // 500ms was too short and caused echo from the phone speaker to trigger interruptions
-        echoCooldownUntil = Date.now() + 1200;
         break;
 
       case 'input_audio_buffer.speech_started':
+        {
+        const now = Date.now();
         // Echo suppression: ignore speech detection shortly after AI finishes speaking
-        if (Date.now() < echoCooldownUntil) {
+        if (now < echoCooldownUntil) {
           logger.info('Ignoring speech_started during echo cooldown');
           break;
         }
-        // Echo suppression during active audio: if AI sent audio very recently (<300ms ago),
-        // this is almost certainly echo from the phone speaker, not real user speech
-        if (isResponseActive && (Date.now() - lastAudioSentAt) < 300) {
-          logger.info('Ignoring speech_started - likely echo from active AI audio');
+
+        if (waitingForPlaybackDrain) {
+          logger.info('Ignoring speech_started while Twilio is still draining AI audio');
           break;
         }
+
+        // Guard against false barge-in caused by handset echo.
+        if (isResponseActive) {
+          const sinceResponseStart = now - responseStartedAt;
+          const sinceLastAiAudio = now - lastAudioSentAt;
+
+          if (sinceResponseStart < MIN_BARGE_IN_MS || sinceLastAiAudio < ACTIVE_AUDIO_GUARD_MS) {
+            logger.info({ sinceResponseStart, sinceLastAiAudio }, 'Ignoring likely echo barge-in during active AI audio');
+            break;
+          }
+        }
+
+        if (!isResponseActive) {
+          logger.info('speech_started detected while no active AI response');
+          break;
+        }
+
         logger.info('User started speaking - interrupting AI');
         // Clear Twilio's audio buffer to stop AI audio playback
         if (streamSid && connection.socket.readyState === WebSocket.OPEN) {
@@ -270,7 +310,10 @@ export function handleTwilioWebSocket(connection, logger) {
           logger.info('Cancelled OpenAI response due to user interruption');
         }
         isResponseActive = false;
+        waitingForPlaybackDrain = false;
+        echoCooldownUntil = now + ECHO_COOLDOWN_MS;
         break;
+        }
 
       case 'conversation.item.input_audio_transcription.completed':
         if (message.transcript) {
@@ -358,10 +401,7 @@ export function handleTwilioWebSocket(connection, logger) {
 
   // Send initial greeting to start conversation
   const sendInitialGreeting = () => {
-    const greetingEvent = {
-      type: 'response.create'
-    };
-    openAiWs.send(JSON.stringify(greetingEvent));
+    openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
     logger.info('Initial greeting triggered');
   };
 
@@ -415,6 +455,15 @@ export function handleTwilioWebSocket(connection, logger) {
           }
           
           chatwootLogger = new ChatwootLogger(`twilio-${callerNumber}`, callSid);
+          if (callerContext?.tenant) {
+            chatwootLogger.setTenant(callerContext.tenant);
+          }
+          if (callerContext?.isKnownCaller || callerContext?.callerType === 'cpo') {
+            chatwootLogger.setKnownCallerProfile(callerContext.callerType || 'known');
+          }
+          if (callerContext?.label) {
+            chatwootLogger.addConversationLabel(callerContext.label);
+          }
           // If we already know the caller's name, set it on the logger for Chatwoot
           if (callerContext?.name) {
             chatwootLogger.setCallerName(callerContext.name);
@@ -429,6 +478,15 @@ export function handleTwilioWebSocket(connection, logger) {
           } else {
             // Queue audio if OpenAI isn't ready yet
             audioQueue.push(message.media.payload);
+          }
+          break;
+
+        case 'mark':
+          if (message.mark?.name === 'response-complete') {
+            waitingForPlaybackDrain = false;
+            isResponseActive = false;
+            echoCooldownUntil = Date.now() + ECHO_COOLDOWN_MS;
+            logger.info('Twilio playback mark received; response considered fully played');
           }
           break;
 

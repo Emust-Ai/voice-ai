@@ -29,11 +29,35 @@ class ChatwootLogger {
     this.chatwootConversationId = null;
     this.humanEscalationRequested = false; // Track if human agent was requested
     this.callerName = null; // Will be set when caller's name is learned
+    this.tenant = null;
+    this.knownCallerProfile = null;
+    this.conversationLabels = new Set();
   }
 
   // Set the caller's real name (used for Chatwoot contact instead of phone number)
   setCallerName(name) {
     this.callerName = name;
+  }
+
+  setTenant(tenant) {
+    this.tenant = tenant;
+    if (tenant) {
+      this.addConversationLabel(`tenant-${String(tenant).toLowerCase()}`);
+    }
+  }
+
+  setKnownCallerProfile(profile) {
+    this.knownCallerProfile = profile;
+    if (profile) {
+      this.addConversationLabel(`caller-${String(profile).toLowerCase()}`);
+    }
+  }
+
+  addConversationLabel(label) {
+    if (!label || typeof label !== 'string') return;
+    const sanitized = label.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+    if (!sanitized) return;
+    this.conversationLabels.add(sanitized);
   }
 
   // Mark that human escalation was requested
@@ -74,7 +98,10 @@ class ChatwootLogger {
       lastUpdate: new Date().toISOString(),
       messageCount: this.messages.length,
       messages: this.messages,
-      chatwootConversationId: this.chatwootConversationId
+      chatwootConversationId: this.chatwootConversationId,
+      tenant: this.tenant,
+      knownCallerProfile: this.knownCallerProfile,
+      labels: Array.from(this.conversationLabels)
     };
 
     try {
@@ -215,7 +242,10 @@ class ChatwootLogger {
         contact_id: String(contactId),
         status: 'open',
         priority: this.humanEscalationRequested ? 'urgent' : null,
-        additional_attributes: {}
+        additional_attributes: {
+          tenant: this.tenant || null,
+          known_caller_profile: this.knownCallerProfile || null
+        }
       };
       console.log(`📦 Payload:`, JSON.stringify(conversationPayload, null, 2));
 
@@ -311,6 +341,12 @@ class ChatwootLogger {
         .map(msg => `${msg.role === 'user' ? 'Client' : 'Assistant'}: ${msg.text}`)
         .join('\n');
 
+      const metadataContext = [
+        this.tenant ? `Tenant identifié: ${this.tenant}` : null,
+        this.knownCallerProfile ? `Profil appelant: ${this.knownCallerProfile}` : null,
+        this.callerName ? `Nom appelant: ${this.callerName}` : null
+      ].filter(Boolean).join('\n');
+
       // Use Azure OpenAI Chat Completion to generate summary
       const endpoint = process.env.AZURE_OPENAI_CHAT_ENDPOINT || process.env.AZURE_OPENAI_ENDPOINT;
       const chatApiKey = process.env.AZURE_OPENAI_CHAT_API_KEY || process.env.AZURE_OPENAI_API_KEY;
@@ -338,6 +374,8 @@ Génère un résumé structuré et actionnable en français avec les sections su
 - Nom du client (si mentionné)
 - Numéro de téléphone ou identifiant (si disponible)
 - Durée approximative / nombre d'échanges
+- Tenant/CPO identifié (si disponible dans le contexte)
+- Étiquettes importantes (ex: caller-cpo, tenant-borneco)
 
 🎯 **Motif de l'appel :** (2-3 phrases)
 Décris précisément pourquoi le client a appelé. Quel était son besoin initial ?
@@ -373,7 +411,7 @@ Sois complet mais reste sous 1400 caractères maximum (contrainte technique Chat
             },
             {
               role: 'user',
-              content: conversationText
+              content: `${metadataContext ? `${metadataContext}\n\n` : ''}${conversationText}`
             }
           ],
           max_tokens: 600,
@@ -460,6 +498,12 @@ Sois complet mais reste sous 1400 caractères maximum (contrainte technique Chat
     const duration = Math.round((new Date() - this.startTime) / 1000);
     
     let summary = `📞 Appel de ${duration} secondes — ${this.messages.length} messages échangés\n`;
+    if (this.tenant) {
+      summary += `🏢 Tenant: ${this.tenant}\n`;
+    }
+    if (this.knownCallerProfile) {
+      summary += `🏷️ Profil appelant: ${this.knownCallerProfile}\n`;
+    }
     summary += `🎯 Motif(s): ${needs.join(', ')}\n`;
     
     // Include first few user messages as context
@@ -484,6 +528,41 @@ Sois complet mais reste sous 1400 caractères maximum (contrainte technique Chat
     }
     
     return summary;
+  }
+
+  // Toggle conversation priority to urgent (for human escalation)
+  async applyConversationLabels() {
+    if (!this.chatwootConversationId) {
+      return { success: false, reason: 'no_conversation_id' };
+    }
+
+    if (!this.chatwootUrl || !this.chatwootAccountId || !this.chatwootApiToken) {
+      return { success: false, reason: 'not_configured' };
+    }
+
+    const labels = Array.from(this.conversationLabels);
+    if (labels.length === 0) {
+      return { success: true, reason: 'no_labels' };
+    }
+
+    try {
+      const labelsUrl = `${this.chatwootUrl}/api/v1/accounts/${this.chatwootAccountId}/conversations/${this.chatwootConversationId}/labels`;
+      await axios.post(
+        labelsUrl,
+        { labels },
+        {
+          headers: {
+            'api_access_token': this.chatwootApiToken,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      console.log(`✅ Chatwoot labels applied: ${labels.join(', ')}`);
+      return { success: true };
+    } catch (error) {
+      console.error('Error applying Chatwoot labels:', error.response?.data || error.message);
+      return { success: false, error: error.message };
+    }
   }
 
   // Toggle conversation priority to urgent (for human escalation)
@@ -576,6 +655,11 @@ Sois complet mais reste sous 1400 caractères maximum (contrainte technique Chat
     if (result.success && this.chatwootConversationId && this.humanEscalationRequested) {
       console.log('🚨 Human escalation was requested - setting priority to URGENT');
       await this.togglePriorityUrgent();
+    }
+
+    // Apply labels (tenant/caller profile/custom tags)
+    if (result.success && this.chatwootConversationId) {
+      await this.applyConversationLabels();
     }
     
     // Generate AI summary and update Chatwoot custom attribute
