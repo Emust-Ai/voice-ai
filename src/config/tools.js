@@ -323,16 +323,19 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'save_caller_info',
-    description: 'Save the caller\'s name when they introduce themselves or give you their name for the first time. Call this tool as soon as you learn the caller\'s name so we can remember them for future calls. Also use this to update the name if they correct it.',
+    description: 'Save caller reference info for future calls. You can save caller_name, caller_phone, or both. For CPO relayed calls (e.g., BornEco), call this as soon as you get the END CLIENT phone number so we anchor future context and Chatwoot on the client number, not the CPO line.',
     parameters: {
       type: 'object',
       properties: {
         caller_name: {
           type: 'string',
           description: 'The full name of the caller as they stated it (e.g., "Jean Dupont", "Marie", "Ahmed Ben Ali")'
+        },
+        caller_phone: {
+          type: 'string',
+          description: 'End-client phone number reference (E.164 preferred, e.g., +33612345678). Use this for CPO relayed calls to anchor the profile on the real client number.'
         }
-      },
-      required: ['caller_name']
+      }
     }
   }
 ];

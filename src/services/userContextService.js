@@ -72,20 +72,12 @@ function writeContextStore(store) {
 export function lookupCaller(phoneNumber) {
   if (!phoneNumber) return null;
   const normalized = normalizePhone(phoneNumber);
+  const store = readContextStore();
 
   // Check if this is a known/pre-configured caller
   const knownCaller = KNOWN_CALLERS[normalized];
   if (knownCaller) {
-    const store = readContextStore();
-    const existing = store[normalized] || {
-      name: knownCaller.name,
-      phoneNumber: normalized,
-      lastProblem: null,
-      lastResolution: null,
-      conversationSummaries: [],
-      lastCallDate: null,
-      callCount: 0
-    };
+    const existing = store[normalized] || createEmptyContext(normalized, knownCaller.name);
     // Always ensure known caller fields are set
     if (knownCaller.name) existing.name = existing.name || knownCaller.name;
     existing.tenant = knownCaller.tenant;
@@ -95,7 +87,6 @@ export function lookupCaller(phoneNumber) {
     return existing;
   }
 
-  const store = readContextStore();
   return store[normalized] || null;
 }
 
@@ -108,15 +99,7 @@ export function saveCallerContext(phoneNumber, contextData) {
   const normalized = normalizePhone(phoneNumber);
   const store = readContextStore();
 
-  const existing = store[normalized] || {
-    name: null,
-    phoneNumber: normalized,
-    lastProblem: null,
-    lastResolution: null,
-    conversationSummaries: [],
-    lastCallDate: null,
-    callCount: 0
-  };
+  const existing = store[normalized] || createEmptyContext(normalized);
 
   // Merge new data
   if (contextData.name) existing.name = contextData.name;
@@ -144,27 +127,77 @@ export function saveCallerContext(phoneNumber, contextData) {
 }
 
 /**
- * Save only the caller's name (used by the AI tool when it first learns the name).
+ * Save caller info. Supports:
+ * - caller_name: caller/client full name
+ * - caller_phone: end client phone number reference (for CPO relayed calls)
+ *
+ * If caller_phone is provided, the profile anchor switches to that number
+ * and future context is saved/looked up under that number.
  */
-export function saveCallerName(phoneNumber, name) {
-  if (!phoneNumber || !name) return null;
-  const normalized = normalizePhone(phoneNumber);
+export function saveCallerInfo(sessionPhoneNumber, info = {}) {
+  if (!sessionPhoneNumber) return null;
+
+  const baseNumber = normalizePhone(sessionPhoneNumber);
+  const providedReferenceNumber = normalizePhone(info.caller_phone || info.reference_phone_number || '');
+  const anchorNumber = providedReferenceNumber || baseNumber;
+  const callerName = (info.caller_name || info.name || '').trim() || null;
+
+  const knownCaller = KNOWN_CALLERS[baseNumber] || null;
   const store = readContextStore();
 
-  const existing = store[normalized] || {
-    name: null,
-    phoneNumber: normalized,
+  const existing = store[anchorNumber] || createEmptyContext(anchorNumber);
+
+  if (callerName) {
+    existing.name = callerName;
+  }
+
+  // Keep track of the original incoming line for auditing/cross-reference.
+  existing.sourcePhoneNumbers = Array.isArray(existing.sourcePhoneNumbers) ? existing.sourcePhoneNumbers : [];
+  if (baseNumber && !existing.sourcePhoneNumbers.includes(baseNumber)) {
+    existing.sourcePhoneNumbers.push(baseNumber);
+  }
+
+  if (providedReferenceNumber) {
+    existing.referencePhoneNumber = providedReferenceNumber;
+  }
+
+  // Preserve known caller metadata from the incoming line (e.g., CPO BornEco profile)
+  if (knownCaller) {
+    existing.tenant = knownCaller.tenant;
+    if (anchorNumber === baseNumber) {
+      existing.callerType = knownCaller.callerType || existing.callerType;
+      existing.label = knownCaller.label || existing.label;
+      existing.isKnownCaller = true;
+    } else {
+      existing.relayedBy = baseNumber;
+    }
+  }
+
+  store[anchorNumber] = existing;
+  writeContextStore(store);
+  return existing;
+}
+
+/**
+ * Backward-compatible wrapper.
+ */
+export function saveCallerName(phoneNumber, name) {
+  if (!name) return null;
+  return saveCallerInfo(phoneNumber, { caller_name: name });
+}
+
+function createEmptyContext(normalizedPhone, defaultName = null) {
+  return {
+    name: defaultName,
+    phoneNumber: normalizedPhone,
+    referencePhoneNumber: null,
+    sourcePhoneNumbers: [],
     lastProblem: null,
     lastResolution: null,
     conversationSummaries: [],
-    lastCallDate: new Date().toISOString(),
+    lastCallDate: null,
     callCount: 0
   };
-
-  existing.name = name;
-  store[normalized] = existing;
-  writeContextStore(store);
-  return existing;
 }
 
 /**
@@ -181,14 +214,16 @@ export function generateCallerContextPrompt(callerContext) {
     lines.push(`- When the caller mentions a station or location, skip tenant identification and go straight to \`station_verification\` (or other tools) with tenant = "${callerContext.tenant}".`);
     if (callerContext.callerType === 'cpo') {
       lines.push(`- This is a known CPO caller profile. Mention the tenant naturally when greeting (e.g., "support ev24 pour BornEco").`);
-      lines.push(`- Early in the call, ask for the caller's full name and run \`user_management\` with tenant = "${callerContext.tenant}" to verify the user profile before sensitive actions.`);
+      lines.push(`- EARLY IN THE CALL, ask for the END CLIENT phone number first and call \`save_caller_info\` with \`caller_phone\` immediately.`);
+      lines.push(`- If they also share the client name, call \`save_caller_info\` again with \`caller_phone\` + \`caller_name\` to update the same profile.`);
+      lines.push(`- After saving client number, run \`user_management\` with tenant = "${callerContext.tenant}" when account verification is needed.`);
     }
     lines.push('');
     lines.push(`### Caller Context`);
     lines.push(`This is a known caller but we do not have their personal name on file.`);
-    lines.push(`- Ask for the caller's name early so you can verify their profile for this tenant.`);
-    lines.push(`- Example greeting: "Bonjour ! Ici Marc, du service client ev24${callerContext.callerType === 'cpo' ? ' pour BornEco' : ''}. Puis-je avoir votre nom pour vérification rapide ?"`);
-    lines.push(`- As soon as they provide their name, call the \`save_caller_info\` tool so future calls are faster.`);
+    lines.push(`- Example greeting: "Bonjour ! Ici Marc, du service client ev24${callerContext.callerType === 'cpo' ? ' pour BornEco' : ''}. Puis-je avoir le numéro du client concerné ?"`);
+    lines.push(`- As soon as they provide the client number, call the \`save_caller_info\` tool with \`caller_phone\` so future calls are anchored on the end client.`);
+    lines.push(`- If they give the client name too, call \`save_caller_info\` again with both \`caller_phone\` and \`caller_name\`.`);
     lines.push(`- Proceed directly to helping them with their request.`);
     return lines.join('\n');
   }
@@ -285,7 +320,7 @@ This is a NEW caller whose phone number is not yet in our system.
   lines.push(`- If the caller gives you an updated name or corrects their name, call the \`save_caller_info\` tool to update it.`);
   lines.push(`- Use their name occasionally during the conversation (not every sentence) to keep it personal.`);
   if (callerContext.callerType === 'cpo' && callerContext.tenant) {
-    lines.push(`- This is a CPO known-caller profile: quickly confirm identity and run \`user_management\` with tenant = "${callerContext.tenant}" before sensitive actions.`);
+    lines.push(`- This is a CPO known-caller profile: ask for end-client number first and save it via \`save_caller_info(caller_phone)\`, then proceed.`);
   }
 
   return lines.join('\n');

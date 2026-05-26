@@ -4,7 +4,7 @@ import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
 import ChatwootLogger from '../services/chatwootLogger.js';
 import { billVoiceUsage } from '../services/billingService.js';
-import { lookupCaller, saveCallerName, saveCallerContext, generateCallerContextPrompt } from '../services/userContextService.js';
+import { lookupCaller, saveCallerInfo, saveCallerContext, generateCallerContextPrompt } from '../services/userContextService.js';
 import { generateConversationSummaryForContext } from '../services/conversationSummarizer.js';
 
 // Build Azure OpenAI Realtime WebSocket URL
@@ -30,6 +30,7 @@ export function handleTwilioWebSocket(connection, logger) {
   let responseStartedAt = 0; // Track when the current AI utterance started
   let waitingForPlaybackDrain = false; // Wait for Twilio mark before accepting interruption
   let callerContext = null; // Persistent user context from previous calls
+  let activeProfilePhoneNumber = null; // Context anchor (can switch to end-client number for CPO calls)
 
   const parseMs = (value, fallback) => {
     const parsed = Number.parseInt(value, 10);
@@ -139,13 +140,24 @@ export function handleTwilioWebSocket(connection, logger) {
 
       // Handle save_caller_info locally (not via n8n)
       if (name === 'save_caller_info') {
-        const savedContext = saveCallerName(callerNumber, args.caller_name);
+        const savedContext = saveCallerInfo(activeProfilePhoneNumber || callerNumber, {
+          caller_name: args.caller_name,
+          caller_phone: args.caller_phone
+        });
         callerContext = savedContext;
-        logger.info(`Saved caller name: ${args.caller_name} for ${callerNumber}`);
+        if (savedContext?.phoneNumber) {
+          activeProfilePhoneNumber = savedContext.phoneNumber;
+        }
+        logger.info(`Saved caller info for profile ${activeProfilePhoneNumber || callerNumber}: name=${args.caller_name || 'N/A'}, phone=${args.caller_phone || 'N/A'}`);
         
         // Update Chatwoot logger so the contact uses the real name
         if (chatwootLogger) {
-          chatwootLogger.setCallerName(args.caller_name);
+          if (args.caller_name) {
+            chatwootLogger.setCallerName(args.caller_name);
+          }
+          if (activeProfilePhoneNumber) {
+            chatwootLogger.setReferencePhoneNumber(activeProfilePhoneNumber);
+          }
         }
         
         const toolResponse = {
@@ -153,7 +165,13 @@ export function handleTwilioWebSocket(connection, logger) {
           item: {
             type: 'function_call_output',
             call_id: call_id,
-            output: JSON.stringify({ success: true, message: `Caller name "${args.caller_name}" saved successfully.` })
+            output: JSON.stringify({
+              success: true,
+              message: 'Caller info saved successfully.',
+              profile_phone: activeProfilePhoneNumber || callerNumber,
+              caller_name: args.caller_name || null,
+              caller_phone: args.caller_phone || null
+            })
           }
         };
         openAiWs.send(JSON.stringify(toolResponse));
@@ -443,6 +461,7 @@ export function handleTwilioWebSocket(connection, logger) {
           logger.info('Start message received:', JSON.stringify(message.start, null, 2));
           
           callerNumber = message.start.customParameters?.callerNumber || callSid;
+          activeProfilePhoneNumber = callerNumber;
           logger.info(`Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}, Caller: ${callerNumber}`);
           logger.info(`CustomParameters:`, message.start.customParameters);
           
@@ -450,6 +469,9 @@ export function handleTwilioWebSocket(connection, logger) {
           callerContext = lookupCaller(callerNumber);
           if (callerContext) {
             logger.info(`Found existing context for ${callerNumber}: name=${callerContext.name}, calls=${callerContext.callCount}`);
+            if (callerContext.phoneNumber) {
+              activeProfilePhoneNumber = callerContext.phoneNumber;
+            }
           } else {
             logger.info(`No existing context for ${callerNumber} — new caller`);
           }
@@ -463,6 +485,9 @@ export function handleTwilioWebSocket(connection, logger) {
           }
           if (callerContext?.label) {
             chatwootLogger.addConversationLabel(callerContext.label);
+          }
+          if (activeProfilePhoneNumber) {
+            chatwootLogger.setReferencePhoneNumber(activeProfilePhoneNumber);
           }
           // If we already know the caller's name, set it on the logger for Chatwoot
           if (callerContext?.name) {
@@ -507,15 +532,16 @@ export function handleTwilioWebSocket(connection, logger) {
     logger.info('Twilio WebSocket closed');
     
     // Save conversation context for future calls
-    if (callerNumber && chatwootLogger) {
+    if ((activeProfilePhoneNumber || callerNumber) && chatwootLogger) {
       try {
         const summary = await generateConversationSummaryForContext(chatwootLogger.messages);
-        saveCallerContext(callerNumber, {
+        const contextPhone = activeProfilePhoneNumber || callerNumber;
+        saveCallerContext(contextPhone, {
           lastProblem: summary.lastProblem || null,
           lastResolution: summary.lastResolution || null,
           conversationSummary: summary.conversationSummary || null
         });
-        logger.info(`Saved conversation context for ${callerNumber}`);
+        logger.info(`Saved conversation context for ${contextPhone}`);
       } catch (err) {
         logger.error(`Failed to save conversation context: ${err.message}`);
       }

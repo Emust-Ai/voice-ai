@@ -29,6 +29,7 @@ class ChatwootLogger {
     this.chatwootConversationId = null;
     this.humanEscalationRequested = false; // Track if human agent was requested
     this.callerName = null; // Will be set when caller's name is learned
+    this.referencePhoneNumber = null;
     this.tenant = null;
     this.knownCallerProfile = null;
     this.conversationLabels = new Set();
@@ -37,6 +38,11 @@ class ChatwootLogger {
   // Set the caller's real name (used for Chatwoot contact instead of phone number)
   setCallerName(name) {
     this.callerName = name;
+  }
+
+  setReferencePhoneNumber(phoneNumber) {
+    if (!phoneNumber) return;
+    this.referencePhoneNumber = String(phoneNumber);
   }
 
   setTenant(tenant) {
@@ -99,6 +105,7 @@ class ChatwootLogger {
       messageCount: this.messages.length,
       messages: this.messages,
       chatwootConversationId: this.chatwootConversationId,
+      referencePhoneNumber: this.referencePhoneNumber,
       tenant: this.tenant,
       knownCallerProfile: this.knownCallerProfile,
       labels: Array.from(this.conversationLabels)
@@ -161,8 +168,10 @@ class ChatwootLogger {
 
       console.log(`📤 Sending conversation to Chatwoot (${this.messages.length} messages)...`);
 
-      // Extract phone number from sessionId (format: twilio-+33185412867)
-      const phoneNumber = this.sessionId.replace('twilio-', '');
+      // Use end-client reference phone when available, otherwise fallback to incoming line
+      const fallbackPhone = this.sessionId.replace('twilio-', '');
+      const phoneNumber = this.referencePhoneNumber || fallbackPhone;
+      const contactIdentifier = `twilio-${phoneNumber}`;
 
       // Step 1: Create or get a contact
       console.log('📍 Step 1: Creating/Getting contact...');
@@ -172,7 +181,7 @@ class ChatwootLogger {
         const contactPayload = {
           inbox_id: parseInt(this.chatwootInboxId),
           name: contactDisplayName,
-          identifier: this.sessionId,
+          identifier: contactIdentifier,
           phone_number: phoneNumber
         };
         console.log(`📦 Contact Payload:`, JSON.stringify(contactPayload, null, 2));
@@ -194,7 +203,7 @@ class ChatwootLogger {
         if (contactError.response?.status === 422) {
           console.log('Contact already exists, searching...');
           const searchResponse = await axios.get(
-            `${this.chatwootUrl}/api/v1/accounts/${this.chatwootAccountId}/contacts/search?q=${encodeURIComponent(this.sessionId)}`,
+            `${this.chatwootUrl}/api/v1/accounts/${this.chatwootAccountId}/contacts/search?q=${encodeURIComponent(contactIdentifier)}`,
             {
               headers: {
                 'api_access_token': this.chatwootApiToken
@@ -237,14 +246,15 @@ class ChatwootLogger {
       console.log(`📍 Step 2: Creating conversation at: ${conversationUrl}`);
       
       const conversationPayload = {
-        source_id: String(this.sessionId),
+        source_id: String(contactIdentifier),
         inbox_id: parseInt(this.chatwootInboxId),
         contact_id: String(contactId),
         status: 'open',
         priority: this.humanEscalationRequested ? 'urgent' : null,
         additional_attributes: {
           tenant: this.tenant || null,
-          known_caller_profile: this.knownCallerProfile || null
+          known_caller_profile: this.knownCallerProfile || null,
+          reference_phone_number: this.referencePhoneNumber || null
         }
       };
       console.log(`📦 Payload:`, JSON.stringify(conversationPayload, null, 2));
@@ -344,7 +354,8 @@ class ChatwootLogger {
       const metadataContext = [
         this.tenant ? `Tenant identifié: ${this.tenant}` : null,
         this.knownCallerProfile ? `Profil appelant: ${this.knownCallerProfile}` : null,
-        this.callerName ? `Nom appelant: ${this.callerName}` : null
+        this.callerName ? `Nom appelant: ${this.callerName}` : null,
+        this.referencePhoneNumber ? `Numéro client de référence: ${this.referencePhoneNumber}` : null
       ].filter(Boolean).join('\n');
 
       // Use Azure OpenAI Chat Completion to generate summary
@@ -503,6 +514,9 @@ Sois complet mais reste sous 1400 caractères maximum (contrainte technique Chat
     }
     if (this.knownCallerProfile) {
       summary += `🏷️ Profil appelant: ${this.knownCallerProfile}\n`;
+    }
+    if (this.referencePhoneNumber) {
+      summary += `📱 Numéro client: ${this.referencePhoneNumber}\n`;
     }
     summary += `🎯 Motif(s): ${needs.join(', ')}\n`;
     
