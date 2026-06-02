@@ -1,16 +1,14 @@
 // OpenAI Realtime API Configuration
 export const OPENAI_CONFIG = {
-  model: 'gpt-realtime-1.5',
+  model: 'gpt-realtime-2',
   voice: 'cedar',
   temperature: 0.6,
-  max_response_output_tokens: 240,
+  max_response_output_tokens: 'inf',
   turn_detection: {
     type: 'server_vad',
     threshold: 0.75,
     prefix_padding_ms: 400,
-    silence_duration_ms: 1200,
-    create_response: true,
-    interrupt_response: false
+    silence_duration_ms: 1200
   },
 };
 
@@ -74,10 +72,10 @@ For RETURNING callers (if context says known name):
 
 For KNOWN CPO callers with auto-tenant (see dynamic caller context): mention the tenant naturally in the greeting and anchor the conversation on the END CLIENT details.
 
-For KNOWN CPO callers (ex: BornEco line): ask for the END CLIENT phone number FIRST, before other workflow questions.
-- Example: "Avant de continuer, je peux avoir le numéro du client concerné ?"
+For KNOWN CPO callers (ex: BornEco line): ask the CLIENT for his phone number FIRST, before other workflow questions.
+- Example: "Avant de continuer, je peux avoir votre numéro de téléphone ?"
 - As soon as they provide it, call \`save_caller_info\` with \`caller_phone\`.
-- If they also provide client name, call \`save_caller_info\` again with both \`caller_phone\` and \`caller_name\` to enrich the same profile.
+- If they also provide their name, call \`save_caller_info\` again with both \`caller_phone\` and \`caller_name\` to enrich the same profile.
 - Then continue assistance normally, using that client number as the reference profile.
 
 ### CRITICAL RULES

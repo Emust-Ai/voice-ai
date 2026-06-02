@@ -7,12 +7,10 @@ import { billVoiceUsage } from '../services/billingService.js';
 import { lookupCaller, saveCallerInfo, saveCallerContext, generateCallerContextPrompt } from '../services/userContextService.js';
 import { generateConversationSummaryForContext } from '../services/conversationSummarizer.js';
 
-// Build Azure OpenAI Realtime WebSocket URL
-const getAzureRealtimeUrl = () => {
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT.replace('https://', '');
-  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT;
-  const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-10-01-preview';
-  return `wss://${endpoint}/openai/realtime?api-version=${apiVersion}&deployment=${deployment}`;
+// Build OpenAI Realtime WebSocket URL
+const getOpenAIRealtimeUrl = () => {
+  const model = process.env.OPENAI_REALTIME_MODEL || OPENAI_CONFIG.model;
+  return `wss://api.openai.com/v1/realtime?model=${model}`;
 };
 
 export function handleTwilioWebSocket(connection, logger) {
@@ -41,26 +39,22 @@ export function handleTwilioWebSocket(connection, logger) {
   const ACTIVE_AUDIO_GUARD_MS = parseMs(process.env.ACTIVE_AUDIO_GUARD_MS, 650);
 
   const createVoiceResponseEvent = () => ({
-    type: 'response.create',
-    response: {
-      modalities: ['text', 'audio'],
-      voice: OPENAI_CONFIG.voice
-    }
+    type: 'response.create'
   });
 
-  // Connect to Azure OpenAI Realtime API
+  // Connect to OpenAI Realtime API
   const connectToOpenAI = () => {
-    const azureUrl = getAzureRealtimeUrl();
-    logger.info(`Connecting to Azure OpenAI: ${azureUrl}`);
+    const realtimeUrl = getOpenAIRealtimeUrl();
+    logger.info(`Connecting to OpenAI: ${realtimeUrl}`);
     
-    openAiWs = new WebSocket(azureUrl, {
+    openAiWs = new WebSocket(realtimeUrl, {
       headers: {
-        'api-key': process.env.AZURE_OPENAI_API_KEY
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
       }
     });
 
     openAiWs.on('open', () => {
-      logger.info('Connected to Azure OpenAI Realtime API');
+      logger.info('Connected to OpenAI Realtime API');
       initializeSession();
     });
 
@@ -85,7 +79,7 @@ export function handleTwilioWebSocket(connection, logger) {
           statusCode: response.statusCode, 
           statusMessage: response.statusMessage,
           body: body 
-        }, 'Azure OpenAI connection rejected');
+        }, 'OpenAI connection rejected');
       });
     });
   };
@@ -105,21 +99,31 @@ export function handleTwilioWebSocket(connection, logger) {
     const sessionConfig = {
       type: 'session.update',
       session: {
-        turn_detection: OPENAI_CONFIG.turn_detection,
-        input_audio_format: 'g711_ulaw',
-        output_audio_format: 'g711_ulaw',
-        voice: OPENAI_CONFIG.voice,
+        type: 'realtime',
+        audio: {
+          input: {
+            format: { type: 'audio/pcmu' },
+            transcription: {
+              model: 'gpt-4o-mini-transcribe',
+              language: 'fr',
+              prompt: 'Service client ev24 (bornes de recharge). Noms importants: BornEco, Borneco, Wattzhub, relais, Carrefour. Mots: borne, station, connecteur, RFID, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
+            },
+            turn_detection: {
+              ...OPENAI_CONFIG.turn_detection,
+              create_response: true,
+              interrupt_response: false
+            }
+          },
+          output: {
+            format: { type: 'audio/pcmu' },
+            voice: OPENAI_CONFIG.voice
+          }
+        },
         instructions: dynamicInstructions,
-        modalities: ['text', 'audio'],
-        temperature: OPENAI_CONFIG.temperature,
-        max_response_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 150,
+        output_modalities: ['audio'],
+        max_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 'inf',
         tools: TOOLS,
-        tool_choice: 'auto',
-        input_audio_transcription: {
-          model: 'whisper-1',
-          language: 'fr',
-          prompt: 'Service client ev24 (bornes de recharge). Noms importants: BornEco, Borneco, Wattzhub, relais, Carrefour. Mots: borne, station, connecteur, RFID, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
-        }
+        tool_choice: 'auto'
       }
     };
 
@@ -252,6 +256,7 @@ export function handleTwilioWebSocket(connection, logger) {
         break;
 
       case 'response.audio.delta':
+      case 'response.output_audio.delta':
         if (!isResponseActive) {
           responseStartedAt = Date.now();
         }
@@ -269,6 +274,7 @@ export function handleTwilioWebSocket(connection, logger) {
         break;
 
       case 'response.audio.done':
+      case 'response.output_audio.done':
         logger.info('OpenAI audio response complete');
         // Send a mark event to ensure Twilio plays all buffered audio before we consider response complete
         if (streamSid && connection.socket.readyState === WebSocket.OPEN) {
@@ -338,6 +344,15 @@ export function handleTwilioWebSocket(connection, logger) {
           logger.info(`User: ${message.transcript}`);
           if (chatwootLogger) {
             chatwootLogger.logUser(message.transcript);
+          }
+        }
+        break;
+
+      case 'response.output_audio_transcript.done':
+        if (message.transcript) {
+          logger.info(`Assistant: ${message.transcript}`);
+          if (chatwootLogger) {
+            chatwootLogger.logAssistant(message.transcript);
           }
         }
         break;

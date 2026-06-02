@@ -27,19 +27,18 @@ export async function generateConversationSummaryForContext(messages) {
     .join('\n');
 
   try {
-    const endpoint = process.env.AZURE_OPENAI_CHAT_ENDPOINT || process.env.AZURE_OPENAI_ENDPOINT;
-    const chatApiKey = process.env.AZURE_OPENAI_CHAT_API_KEY || process.env.AZURE_OPENAI_API_KEY;
-    const chatDeployment = process.env.AZURE_OPENAI_CHAT_DEPLOYMENT || 'gpt-4o-mini';
-    const chatApiVersion = process.env.AZURE_OPENAI_CHAT_API_VERSION || '2025-01-01-preview';
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    const chatModel = process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini';
 
-    if (!endpoint || !chatApiKey) {
-      console.log('Azure OpenAI Chat not configured, using basic context extraction');
+    if (!openaiApiKey) {
+      console.log('OpenAI Chat not configured, using basic context extraction');
       return extractBasicContext(messages);
     }
 
     const response = await axios.post(
-      `${endpoint}/openai/deployments/${chatDeployment}/chat/completions?api-version=${chatApiVersion}`,
+      'https://api.openai.com/v1/chat/completions',
       {
+        model: chatModel,
         messages: [
           {
             role: 'system',
@@ -79,7 +78,7 @@ Return ONLY valid JSON, no markdown fences, no extra text.`
       },
       {
         headers: {
-          'api-key': chatApiKey,
+          'Authorization': `Bearer ${openaiApiKey}`,
           'Content-Type': 'application/json'
         }
       }
