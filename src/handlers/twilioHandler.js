@@ -35,8 +35,6 @@ export function handleTwilioWebSocket(connection, logger) {
     return Number.isFinite(parsed) ? parsed : fallback;
   };
   const ECHO_COOLDOWN_MS = parseMs(process.env.ECHO_COOLDOWN_MS, 1800);
-  const MIN_BARGE_IN_MS = parseMs(process.env.MIN_BARGE_IN_MS, 1200);
-  const ACTIVE_AUDIO_GUARD_MS = parseMs(process.env.ACTIVE_AUDIO_GUARD_MS, 650);
 
   const createVoiceResponseEvent = () => ({
     type: 'response.create'
@@ -104,14 +102,14 @@ export function handleTwilioWebSocket(connection, logger) {
           input: {
             format: { type: 'audio/pcmu' },
             transcription: {
-              model: 'gpt-4o-mini-transcribe',
+              model: 'whisper-1',
               language: 'fr',
               prompt: 'Service client ev24 (bornes de recharge). Noms importants: BornEco, Borneco, Wattzhub, relais, Carrefour. Mots: borne, station, connecteur, RFID, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
             },
             turn_detection: {
               ...OPENAI_CONFIG.turn_detection,
               create_response: true,
-              interrupt_response: false
+              interrupt_response: true
             }
           },
           output: {
@@ -299,39 +297,17 @@ export function handleTwilioWebSocket(connection, logger) {
           break;
         }
 
-        if (waitingForPlaybackDrain) {
-          logger.info('Ignoring speech_started while Twilio is still draining AI audio');
-          break;
-        }
-
-        // Guard against false barge-in caused by handset echo.
-        if (isResponseActive) {
-          const sinceResponseStart = now - responseStartedAt;
-          const sinceLastAiAudio = now - lastAudioSentAt;
-
-          if (sinceResponseStart < MIN_BARGE_IN_MS || sinceLastAiAudio < ACTIVE_AUDIO_GUARD_MS) {
-            logger.info({ sinceResponseStart, sinceLastAiAudio }, 'Ignoring likely echo barge-in during active AI audio');
-            break;
-          }
-        }
-
-        if (!isResponseActive) {
-          logger.info('speech_started detected while no active AI response');
-          break;
-        }
-
         logger.info('User started speaking - interrupting AI');
-        // Clear Twilio's audio buffer to stop AI audio playback
+        // Clear Twilio's audio buffer immediately when user speaks
         if (streamSid && connection.socket.readyState === WebSocket.OPEN) {
           connection.socket.send(JSON.stringify({
             event: 'clear',
             streamSid: streamSid
           }));
         }
-        // Cancel OpenAI's ongoing response so it stops generating
-        if (isResponseActive && openAiWs?.readyState === WebSocket.OPEN) {
+        // Cancel OpenAI's ongoing response
+        if (openAiWs?.readyState === WebSocket.OPEN) {
           openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
-          logger.info('Cancelled OpenAI response due to user interruption');
         }
         isResponseActive = false;
         waitingForPlaybackDrain = false;
@@ -345,6 +321,12 @@ export function handleTwilioWebSocket(connection, logger) {
           if (chatwootLogger) {
             chatwootLogger.logUser(message.transcript);
           }
+        }
+        break;
+
+      case 'response.output_audio_transcript.delta':
+        if (message.delta) {
+          logger.info(`Assistant (partial): ${message.delta}`);
         }
         break;
 

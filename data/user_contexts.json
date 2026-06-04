@@ -1,24 +1,96 @@
 {
   "+33159030154": {
-    "name": "Aziz",
+    "name": "Bonjour",
     "phoneNumber": "+33159030154",
-    "lastProblem": "Le client, Aziz, a appelé pour signaler que la borne à la station 'relais' ne fonctionnait toujours pas. Il a mentionné qu'il avait déjà contacté le service client à ce sujet auparavant, mais le problème persiste. Il n'a pas précisé de numéro d'identification ou d'autres informations de compte durant l'appel.",
-    "lastResolution": "Le représentant, Marc, a pris note du problème persistant et a informé Aziz qu'il allait escalader la situation à un agent humain pour une assistance plus approfondie. Le problème reste donc non résolu pour le moment, et une action de suivi est nécessaire pour obtenir une réponse définitive.",
+    "referencePhoneNumber": null,
+    "sourcePhoneNumbers": [
+      "+33159030154"
+    ],
+    "lastProblem": "Le client a demandé de l'aide concernant une station de recharge nommée LECROSS. Il n'a pas précisé de problème particulier, mais il semblait avoir des questions sur son utilisation ou son fonctionnement. Aucun identifiant utilisateur ou réseau spécifique n'a été mentionné durant l'appel.",
+    "lastResolution": "L'agent a proposé d'écouter les questions du client concernant la station LECROSS, mais aucune action concrète n'a été entreprise car le client n'a pas fourni de détails supplémentaires sur son problème. La situation reste donc non résolue, en attente de plus d'informations de la part du client.",
     "conversationSummaries": [
       {
-        "date": "2026-03-30T10:24:06.405Z",
-        "summary": "Aziz a contacté le service client d'ev24 pour signaler un problème avec une borne de recharge à la station 'relais'. Après avoir clarifié la localisation, le représentant a découvert que la station 'ChargeStationOneR' était en panne. Aziz a été transféré à un agent humain pour obtenir de l'aide supplémentaire. Il n'a pas exprimé de frustration, mais a simplement accepté le transfert sans demander d'autres informations."
+        "date": "2026-06-03T09:00:27.799Z",
+        "summary": "Le client, Dupont, a contacté le service client pour un problème de démarrage de charge sur la station ID 12345 à Paris. Il a rencontré un message d'erreur de paiement échoué en utilisant son badge RFID. Bien qu'une tentative de démarrage à distance ait été effectuée, le problème n'a pas été complètement résolu. Le client doit mettre à jour ses informations de paiement et a demandé un rappel pour obtenir de l'aide supplémentaire."
       },
       {
-        "date": "2026-03-30T10:25:22.834Z",
-        "summary": "Aziz a contacté le service client d'ev24 pour signaler que la borne de recharge à la station 'relais' ne fonctionnait toujours pas, un problème qu'il avait déjà signalé auparavant. Le représentant, Marc, a reconnu le problème et a promis de le transmettre à l'équipe technique pour une résolution. Aziz a exprimé sa frustration face à la situation, mais aucune solution immédiate n'a été trouvée lors de l'appel. Un suivi par e-mail a été convenu pour tenir Aziz informé des progrès."
+        "date": "2026-06-04T08:29:41.361Z",
+        "summary": "Le client, qui n'a pas donné son nom, a contacté le service client pour signaler un problème de démarrage de charge sur la station ID 4567 du réseau Horizon. Malgré mes tentatives pour initier la charge à distance, l'erreur de connexion a empêché la résolution du problème. Le client a été conseillé de vérifier sa connexion Internet et de rappeler si nécessaire. Il semblait frustré par la situation, ayant déjà rencontré des problèmes similaires auparavant."
       },
       {
-        "date": "2026-03-30T10:26:25.000Z",
-        "summary": "Aziz a contacté le service client ev24 pour signaler un problème persistant avec la borne à la station 'relais', qui ne fonctionne toujours pas malgré un précédent appel. Marc, le représentant, a reconnu le problème et a décidé d'escalader la situation à un agent humain pour une résolution. Aziz semble frustré par la situation, car il avait déjà signalé ce problème auparavant."
+        "date": "2026-06-04T08:31:39.259Z",
+        "summary": "Marc Savard a contacté le service client d'ev24 pour signaler un problème avec le connecteur numéro 1 d'une station de charge. Après avoir essayé de débrancher et rebrancher le câble sans succès, l'assistant a tenté de vérifier le réseau mais a rencontré une erreur système. Il a proposé de transférer Marc à un collègue pour obtenir une aide supplémentaire. Il est important de noter que le problème n'a pas été résolu lors de cet appel."
+      },
+      {
+        "date": "2026-06-04T08:45:57.945Z",
+        "summary": "Le client a contacté le service client ev24 pour poser une question sur la station de recharge LECROSS. L'agent, Marc, a tenté de clarifier la demande du client, mais ce dernier n'a pas fourni d'informations précises sur son problème. L'appel est resté ouvert sans résolution, le client n'ayant pas détaillé ses préoccupations."
       }
     ],
-    "lastCallDate": "2026-03-30T10:26:25.000Z",
-    "callCount": 3
+    "lastCallDate": "2026-06-04T08:45:57.945Z",
+    "callCount": 4
+  },
+  "+33699966853": {
+    "name": "Claire",
+    "phoneNumber": "+33699966853",
+    "referencePhoneNumber": null,
+    "sourcePhoneNumbers": [
+      "+33699966853"
+    ],
+    "lastProblem": "Claire souhaite installer une borne de recharge chez elle. Elle a besoin d'informations sur le processus d'installation, notamment sur le type de borne à choisir et les démarches à suivre. Aucun emplacement spécifique ou réseau n'a été mentionné, mais elle a clairement indiqué qu'elle voulait l'installer à son domicile.",
+    "lastResolution": "Marc a expliqué à Claire qu'il est recommandé de faire appel à un électricien IRVE pour évaluer la puissance disponible et le type de prise nécessaire. Il lui a conseillé de consulter un professionnel qui pourra lui proposer une borne adaptée à sa voiture et à son budget. Le problème n'a pas été entièrement résolu car Claire doit encore contacter un électricien pour avancer dans le processus d'installation.",
+    "conversationSummaries": [
+      {
+        "date": "2026-06-04T08:45:27.753Z",
+        "summary": "Claire a contacté le service client d'ev24 pour obtenir des conseils sur l'installation d'une borne de recharge chez elle. Marc lui a expliqué qu'elle devrait faire appel à un électricien IRVE pour évaluer les besoins techniques et choisir une borne adaptée. Bien que des conseils aient été fournis, l'installation n'est pas encore en cours car Claire doit encore prendre des mesures avec un professionnel. Il est important de noter que Claire n'a pas mentionné de réseau spécifique pour l'installation."
+      }
+    ],
+    "lastCallDate": "2026-06-04T08:45:27.753Z",
+    "callCount": 2
+  },
+  "+33183647040": {
+    "name": "Mohamed",
+    "phoneNumber": "+33183647040",
+    "referencePhoneNumber": null,
+    "sourcePhoneNumbers": [
+      "+33183647040"
+    ],
+    "lastProblem": "Le client, Mohamed, a rencontré un problème pour recharger sa voiture près de l'église, car son carte RFID ne s'est pas remplacée. Il a mentionné qu'il était à l'endroit le plus proche de l'église, mais n'a pas pu effectuer la recharge. Il a utilisé une carte RFID pour le paiement, mais n'a pas pu fournir l'ID de la carte en raison de la confidentialité.",
+    "lastResolution": "L'agent a proposé de vérifier la validité de la carte RFID, mais comme le client ne pouvait pas fournir l'ID, l'agent a suggéré d'utiliser l'application pour vérifier la carte ou de transférer l'appel à un collègue. Le client a décidé d'essayer de résoudre le problème par lui-même et a promis de rappeler plus tard. Le problème reste donc non résolu pour le moment.",
+    "conversationSummaries": [
+      {
+        "date": "2026-06-03T11:16:37.616Z",
+        "summary": "Mohamed a contacté le service client d'ev24 pour des informations sur la recharge de son véhicule électrique à Paris. Bien qu'il ait initialement posé des questions sur les solutions de chatbot, l'agent a clarifié qu'il était là pour l'assistance de recharge. L'agent a conseillé à Mohamed de déconnecter et reconnecter le câble de recharge pour tenter de résoudre son problème. La conversation a été interrompue sans confirmation de la résolution du problème."
+      },
+      {
+        "date": "2026-06-03T14:26:27.907Z",
+        "summary": "Mohamed a contacté le service client d'ev24 pour obtenir de l'aide car sa voiture électrique était à court de batterie et il ne pouvait pas se déplacer. L'agent a cherché une station de recharge à proximité et a trouvé une option disponible près du Champ de Mars. Mohamed a remercié l'agent pour l'aide fournie et a indiqué qu'il rappellerait si d'autres problèmes survenaient. Il est important de noter que Mohamed ne peut pas se déplacer pour chercher une autre station."
+      },
+      {
+        "date": "2026-06-03T14:35:24.202Z",
+        "summary": "Le client a partagé des réflexions sur le rôle des individus dans un environnement de travail hybride, sans aborder de problème spécifique lié aux services d'assistance EV24. Il n'y avait pas de demande d'assistance technique ou de problème à résoudre, ce qui a conduit à une conversation sans issue. Aucun suivi ou action n'a été nécessaire, car le client n'a pas exprimé de besoin concret."
+      },
+      {
+        "date": "2026-06-03T14:37:52.839Z",
+        "summary": "Mohamed a contacté le service client d'ev24 pour un problème de recharge de sa voiture près de l'église, où sa carte RFID ne fonctionnait pas. L'agent a essayé de l'aider en lui demandant des informations sur la carte, mais le client a refusé de partager l'ID pour des raisons de confidentialité. Mohamed a décidé d'essayer de résoudre le problème par lui-même et de rappeler plus tard. L'agent a proposé de continuer l'assistance une fois que le client serait prêt."
+      }
+    ],
+    "lastCallDate": "2026-06-03T14:37:52.839Z",
+    "callCount": 4
+  },
+  "+33651573993": {
+    "name": null,
+    "phoneNumber": "+33651573993",
+    "referencePhoneNumber": null,
+    "sourcePhoneNumbers": [],
+    "lastProblem": "Le client a signalé un problème avec la station de charge située à l'adresse 123 Rue de l'Énergie, identifiée comme la station ID 4567. Il a mentionné que le connecteur 1 ne se verrouillait pas correctement, ce qui l'empêchait de commencer une session de charge. Le client utilise le réseau Horizon et a exprimé son frustration face à cette situation, indiquant qu'il avait besoin de charger son véhicule rapidement.",
+    "lastResolution": "L'agent a tenté d'envoyer un démarrage à distance pour le connecteur 1, mais cela n'a pas fonctionné en raison d'un problème technique avec la station. Le problème reste donc non résolu pour le moment. L'agent a conseillé au client de réessayer plus tard et a noté que le problème pourrait nécessiter une intervention technique, donc une escalade a été faite pour un suivi ultérieur.",
+    "conversationSummaries": [
+      {
+        "date": "2026-06-03T12:17:48.447Z",
+        "summary": "Le client, dont le nom n'a pas été précisé, a contacté le service client pour un problème avec la station de charge ID 4567 à 123 Rue de l'Énergie. Il a signalé que le connecteur 1 ne se verrouillait pas, ce qui l'empêchait de charger son véhicule. L'agent a tenté d'envoyer un démarrage à distance, mais cela n'a pas fonctionné, laissant le problème non résolu. Le client a été informé qu'une escalade serait faite pour un suivi technique, et il a été conseillé de réessayer plus tard. Le client semblait frustré par la situation."
+      }
+    ],
+    "lastCallDate": "2026-06-03T12:17:48.447Z",
+    "callCount": 1
   }
 }

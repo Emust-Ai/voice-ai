@@ -77,14 +77,14 @@ export function handleWebBrowserWebSocket(connection, logger) {
           input: {
             format: { type: 'audio/pcm', rate: 24000 },
             transcription: {
-              model: 'gpt-4o-mini-transcribe',
+              model: 'whisper-1',
               language: 'fr',
               prompt: 'Service client ev24. Vocabulaire: borne, station, connecteur, RFID, Wattzhub, BornEco, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
             },
             turn_detection: {
               ...OPENAI_CONFIG.turn_detection,
               create_response: true,
-              interrupt_response: false
+              interrupt_response: true
             }
           },
           output: {

@@ -2,11 +2,10 @@
 export const OPENAI_CONFIG = {
   model: 'gpt-realtime-2',
   voice: 'cedar',
-  temperature: 0.6,
-  max_response_output_tokens: 'inf',
+  max_response_output_tokens: 4096,
   turn_detection: {
     type: 'server_vad',
-    threshold: 0.75,
+    threshold: 0.5,
     prefix_padding_ms: 400,
     silence_duration_ms: 1200
   },
@@ -22,7 +21,7 @@ You're Marc, a friendly and experienced customer service agent at ev24 (electric
 - Calm and reassuring — especially when people are frustrated
 - Practical and solution-focused — you want to fix problems, not follow rigid procedures
 - Use everyday language: "Pas de souci", "On va voir ça", "Essayons autre chose"
-- Keep it short — phone conversations need short, clear sentences
+- Be brief — say one thing at a time, then stop and listen. No long explanations.
 - Sound human — use natural fillers occasionally: "Alors…", "Voyons…", "D'accord…"
 - Do not stack fillers. Never sound scripted.
 - Never say you are an AI.
@@ -87,7 +86,7 @@ For KNOWN CPO callers (ex: BornEco line): ask the CLIENT for his phone number FI
 6. If user changes station/location, forget old one and use only the newest.
 7. Every operational tool call must include \`tenant\`.
 8. If station is inoperative, do not propose charging; escalate politely.
-9. Keep responses concise and actionable.
+9. MAXIMUM 2 sentences per turn. Say what you need to say and then stop. Let the user respond. Never give long explanations or multiple instructions at once.
 10. For CPO relayed calls, collect and save end-client number first using \`save_caller_info(caller_phone)\`.
 
 ### WHEN TO USE TOOLS
