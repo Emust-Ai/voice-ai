@@ -337,6 +337,21 @@ export const TOOLS = [
         }
       }
     }
+  },
+  {
+    type: 'function',
+    name: 'request_location_tool',
+    description: 'Send SMS to caller asking for location to find nearest EV charging station. Use when caller needs a charging station but doesn\'t know where they are.',
+    parameters: {
+      type: 'object',
+      properties: {
+        context: {
+          type: 'string',
+          description: 'Brief note telling caller SMS is being sent'
+        }
+      },
+      required: []
+    }
   }
 ];
 
@@ -354,5 +369,6 @@ export const TOOL_ENDPOINTS = {
   invoice_sending_agent: '/invoice-sending',
   charge_station_tariff: '/station-tariff',
   priority: '/priority-escalation',
-  location: '/location'
+  location: '/location',
+  request_location_tool: '/request-location'
 };

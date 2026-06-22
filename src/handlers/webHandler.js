@@ -5,10 +5,12 @@ import { executeN8nTool } from '../services/n8nService.js';
 import ChatwootLogger from '../services/chatwootLogger.js';
 import { billVoiceUsage } from '../services/billingService.js';
 
-// Build OpenAI Realtime WebSocket URL
-const getOpenAIRealtimeUrl = () => {
-  const model = process.env.OPENAI_REALTIME_MODEL || OPENAI_CONFIG.model;
-  return `wss://api.openai.com/v1/realtime?model=${model}`;
+// Build Azure OpenAI Realtime WebSocket URL
+const getAzureOpenAIRealtimeUrl = () => {
+  const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/$/, '');
+  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT || OPENAI_CONFIG.model;
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-10-01-preview';
+  return `${endpoint}/openai/realtime?api-version=${apiVersion}&deployment=${deployment}`;
 };
 
 export function handleWebBrowserWebSocket(connection, logger) {
@@ -24,17 +26,17 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
   // Connect to OpenAI Realtime API
   const connectToOpenAI = () => {
-    const realtimeUrl = getOpenAIRealtimeUrl();
-    logger.info(`Connecting to OpenAI: ${realtimeUrl}`);
+    const realtimeUrl = getAzureOpenAIRealtimeUrl();
+    logger.info(`Connecting to Azure OpenAI: ${realtimeUrl}`);
     
     openAiWs = new WebSocket(realtimeUrl, {
       headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+        'api-key': process.env.AZURE_OPENAI_API_KEY
       }
     });
 
     openAiWs.on('open', () => {
-      logger.info('Connected to OpenAI Realtime API (Web Client)');
+      logger.info('Connected to Azure OpenAI Realtime API (Web Client)');
       initializeSession();
     });
 
@@ -43,12 +45,12 @@ export function handleWebBrowserWebSocket(connection, logger) {
     });
 
     openAiWs.on('error', (error) => {
-      logger.error({ err: error, message: error.message }, 'OpenAI WebSocket error');
-      sendToClient({ type: 'error', message: 'OpenAI connection error' });
+      logger.error({ err: error, message: error.message }, 'Azure OpenAI WebSocket error');
+      sendToClient({ type: 'error', message: 'Azure OpenAI connection error' });
     });
 
     openAiWs.on('close', (code, reason) => {
-      logger.info(`OpenAI WebSocket closed: ${code} - ${reason.toString()}`);
+      logger.info(`Azure OpenAI WebSocket closed: ${code} - ${reason.toString()}`);
       isOpenAiReady = false;
       sendToClient({ type: 'status', status: 'disconnected' });
     });
@@ -61,8 +63,8 @@ export function handleWebBrowserWebSocket(connection, logger) {
           statusCode: response.statusCode, 
           statusMessage: response.statusMessage,
           body: body 
-        }, 'OpenAI connection rejected');
-        sendToClient({ type: 'error', message: 'OpenAI connection rejected' });
+        }, 'Azure OpenAI connection rejected');
+        sendToClient({ type: 'error', message: 'Azure OpenAI connection rejected' });
       });
     });
   };
@@ -72,36 +74,29 @@ export function handleWebBrowserWebSocket(connection, logger) {
     const sessionConfig = {
       type: 'session.update',
       session: {
-        type: 'realtime',
-        audio: {
-          input: {
-            format: { type: 'audio/pcm', rate: 24000 },
-            transcription: {
-              model: 'whisper-1',
-              language: 'fr',
-              prompt: 'Service client ev24. Vocabulaire: borne, station, connecteur, RFID, Wattzhub, BornEco, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
-            },
-            turn_detection: {
-              ...OPENAI_CONFIG.turn_detection,
-              create_response: true,
-              interrupt_response: true
-            }
-          },
-          output: {
-            format: { type: 'audio/pcm', rate: 24000 },
-            voice: OPENAI_CONFIG.voice
-          }
-        },
+        modalities: ['text', 'audio'],
         instructions: VOICE_AGENT_INSTRUCTIONS,
-        output_modalities: ['audio'],
+        voice: OPENAI_CONFIG.voice,
+        input_audio_format: 'pcm16',
+        output_audio_format: 'pcm16',
+        input_audio_transcription: {
+          model: 'whisper-1',
+          language: 'fr',
+          prompt: 'Service client ev24. Vocabulaire: borne, station, connecteur, RFID, Wattzhub, BornEco, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
+        },
+        turn_detection: {
+          ...OPENAI_CONFIG.turn_detection,
+          create_response: true,
+          interrupt_response: true
+        },
+        max_response_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 'inf',
         tools: TOOLS,
-        tool_choice: 'auto',
-        max_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 'inf'
+        tool_choice: 'auto'
       }
     };
 
     openAiWs.send(JSON.stringify(sessionConfig));
-    logger.info('Session configuration sent to OpenAI (Web Client - PCM16 format with transcription)');
+    logger.info('Session configuration sent to Azure OpenAI (Web Client - PCM16 format with transcription)');
   };
 
   // Send message to web client
@@ -175,13 +170,13 @@ export function handleWebBrowserWebSocket(connection, logger) {
   const handleOpenAiMessage = (message) => {
     switch (message.type) {
       case 'session.created':
-        logger.info('OpenAI session created (Web Client)');
+        logger.info('Azure OpenAI session created (Web Client)');
         isOpenAiReady = true;
         processAudioQueue();
         break;
 
       case 'session.updated':
-        logger.info('OpenAI session updated (Web Client)');
+        logger.info('Azure OpenAI session updated (Web Client)');
         isOpenAiReady = true;
         sendToClient({ type: 'status', status: 'ready' });
         sendInitialGreeting();
@@ -201,7 +196,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
       case 'response.audio.done':
       case 'response.output_audio.done':
-        logger.info('OpenAI audio response complete');
+        logger.info('Azure OpenAI audio response complete');
         sendToClient({ type: 'audio_done' });
         isResponseActive = false; // Mark that response is complete
         break;
@@ -314,12 +309,12 @@ export function handleWebBrowserWebSocket(connection, logger) {
         break;
 
       case 'error':
-        logger.error('OpenAI error:', message.error);
+        logger.error('Azure OpenAI error:', message.error);
         sendToClient({ type: 'error', message: message.error?.message || 'Unknown error' });
         break;
 
       default:
-        logger.debug(`OpenAI message type (Web): ${message.type}`);
+        logger.debug(`Azure OpenAI message type (Web): ${message.type}`);
     }
   };
 

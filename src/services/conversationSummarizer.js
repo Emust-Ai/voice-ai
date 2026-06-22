@@ -10,7 +10,7 @@ dotenv.config();
  *   - How it was resolved (if at all)
  *   - A brief overall summary for context on future calls
  * 
- * Uses Azure OpenAI Chat Completion (gpt-4o-mini) for intelligent extraction.
+ * Uses Azure OpenAI Chat Completion for intelligent extraction.
  */
 export async function generateConversationSummaryForContext(messages) {
   if (!messages || messages.length === 0) {
@@ -27,18 +27,19 @@ export async function generateConversationSummaryForContext(messages) {
     .join('\n');
 
   try {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    const chatModel = process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini';
+    const azureApiKey = process.env.AZURE_OPENAI_API_KEY;
+    const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/$/, '');
+    const chatDeployment = process.env.AZURE_OPENAI_CHAT_DEPLOYMENT || 'gpt-4o-mini';
+    const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-10-01-preview';
 
-    if (!openaiApiKey) {
-      console.log('OpenAI Chat not configured, using basic context extraction');
+    if (!azureApiKey || !endpoint) {
+      console.log('Azure OpenAI Chat not configured, using basic context extraction');
       return extractBasicContext(messages);
     }
 
     const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
+      `${endpoint}/openai/deployments/${chatDeployment}/chat/completions?api-version=${apiVersion}`,
       {
-        model: chatModel,
         messages: [
           {
             role: 'system',
@@ -78,7 +79,7 @@ Return ONLY valid JSON, no markdown fences, no extra text.`
       },
       {
         headers: {
-          'Authorization': `Bearer ${openaiApiKey}`,
+          'api-key': azureApiKey,
           'Content-Type': 'application/json'
         }
       }

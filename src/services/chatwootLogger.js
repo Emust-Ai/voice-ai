@@ -358,21 +358,22 @@ class ChatwootLogger {
         this.referencePhoneNumber ? `Numéro client de référence: ${this.referencePhoneNumber}` : null
       ].filter(Boolean).join('\n');
 
-      // Use OpenAI Chat Completion to generate summary
-      const openaiApiKey = process.env.OPENAI_API_KEY;
-      const chatModel = process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini';
+      // Use Azure OpenAI Chat Completion to generate summary
+      const azureApiKey = process.env.AZURE_OPENAI_API_KEY;
+      const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/$/, '');
+      const chatDeployment = process.env.AZURE_OPENAI_CHAT_DEPLOYMENT || 'gpt-4o-mini';
+      const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-10-01-preview';
       
-      if (!openaiApiKey) {
-        console.log('OpenAI Chat not configured, using basic summary');
+      if (!azureApiKey || !endpoint) {
+        console.log('Azure OpenAI Chat not configured, using basic summary');
         return this.generateBasicSummary();
       }
 
-      console.log(`Generating AI summary using model: ${chatModel}`);
+      console.log(`Generating AI summary using deployment: ${chatDeployment}`);
       
       const response = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
+        `${endpoint}/openai/deployments/${chatDeployment}/chat/completions?api-version=${apiVersion}`,
         {
-          model: chatModel,
           messages: [
             {
               role: 'system',
@@ -429,7 +430,7 @@ Sois complet mais reste sous 1400 caractères maximum (contrainte technique Chat
         },
         {
           headers: {
-            'Authorization': `Bearer ${openaiApiKey}`,
+            'api-key': azureApiKey,
             'Content-Type': 'application/json'
           }
         }

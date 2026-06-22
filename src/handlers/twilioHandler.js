@@ -6,11 +6,14 @@ import ChatwootLogger from '../services/chatwootLogger.js';
 import { billVoiceUsage } from '../services/billingService.js';
 import { lookupCaller, saveCallerInfo, saveCallerContext, generateCallerContextPrompt } from '../services/userContextService.js';
 import { generateConversationSummaryForContext } from '../services/conversationSummarizer.js';
+import { setSession, getSession, removeSession } from '../utils/callState.js';
 
-// Build OpenAI Realtime WebSocket URL
-const getOpenAIRealtimeUrl = () => {
-  const model = process.env.OPENAI_REALTIME_MODEL || OPENAI_CONFIG.model;
-  return `wss://api.openai.com/v1/realtime?model=${model}`;
+// Build Azure OpenAI Realtime WebSocket URL
+const getAzureOpenAIRealtimeUrl = () => {
+  const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/$/, '');
+  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT || OPENAI_CONFIG.model;
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-10-01-preview';
+  return `${endpoint}/openai/realtime?api-version=${apiVersion}&deployment=${deployment}`;
 };
 
 export function handleTwilioWebSocket(connection, logger) {
@@ -42,17 +45,17 @@ export function handleTwilioWebSocket(connection, logger) {
 
   // Connect to OpenAI Realtime API
   const connectToOpenAI = () => {
-    const realtimeUrl = getOpenAIRealtimeUrl();
-    logger.info(`Connecting to OpenAI: ${realtimeUrl}`);
+    const realtimeUrl = getAzureOpenAIRealtimeUrl();
+    logger.info(`Connecting to Azure OpenAI: ${realtimeUrl}`);
     
     openAiWs = new WebSocket(realtimeUrl, {
       headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+        'api-key': process.env.AZURE_OPENAI_API_KEY
       }
     });
 
     openAiWs.on('open', () => {
-      logger.info('Connected to OpenAI Realtime API');
+      logger.info('Connected to Azure OpenAI Realtime API');
       initializeSession();
     });
 
@@ -61,11 +64,11 @@ export function handleTwilioWebSocket(connection, logger) {
     });
 
     openAiWs.on('error', (error) => {
-      logger.error({ err: error, message: error.message }, 'OpenAI WebSocket error');
+      logger.error({ err: error, message: error.message }, 'Azure OpenAI WebSocket error');
     });
 
     openAiWs.on('close', (code, reason) => {
-      logger.info(`OpenAI WebSocket closed: ${code} - ${reason.toString()}`);
+      logger.info(`Azure OpenAI WebSocket closed: ${code} - ${reason.toString()}`);
       isOpenAiReady = false;
     });
 
@@ -77,7 +80,7 @@ export function handleTwilioWebSocket(connection, logger) {
           statusCode: response.statusCode, 
           statusMessage: response.statusMessage,
           body: body 
-        }, 'OpenAI connection rejected');
+        }, 'Azure OpenAI connection rejected');
       });
     });
   };
@@ -97,36 +100,29 @@ export function handleTwilioWebSocket(connection, logger) {
     const sessionConfig = {
       type: 'session.update',
       session: {
-        type: 'realtime',
-        audio: {
-          input: {
-            format: { type: 'audio/pcmu' },
-            transcription: {
-              model: 'whisper-1',
-              language: 'fr',
-              prompt: 'Service client ev24 (bornes de recharge). Noms importants: BornEco, Borneco, Wattzhub, relais, Carrefour. Mots: borne, station, connecteur, RFID, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
-            },
-            turn_detection: {
-              ...OPENAI_CONFIG.turn_detection,
-              create_response: true,
-              interrupt_response: true
-            }
-          },
-          output: {
-            format: { type: 'audio/pcmu' },
-            voice: OPENAI_CONFIG.voice
-          }
-        },
+        modalities: ['text', 'audio'],
         instructions: dynamicInstructions,
-        output_modalities: ['audio'],
-        max_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 'inf',
+        voice: OPENAI_CONFIG.voice,
+        input_audio_format: 'g711_ulaw',
+        output_audio_format: 'g711_ulaw',
+        input_audio_transcription: {
+          model: 'whisper-1',
+          language: 'fr',
+          prompt: 'Service client ev24 (bornes de recharge). Noms importants: BornEco, Borneco, Wattzhub, relais, Carrefour. Mots: borne, station, connecteur, RFID, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
+        },
+        turn_detection: {
+          ...OPENAI_CONFIG.turn_detection,
+          create_response: true,
+          interrupt_response: true
+        },
+        max_response_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 'inf',
         tools: TOOLS,
         tool_choice: 'auto'
       }
     };
 
     openAiWs.send(JSON.stringify(sessionConfig));
-    logger.info('Session configuration sent to OpenAI with tools and transcription enabled');
+    logger.info('Session configuration sent to Azure OpenAI with tools and transcription enabled');
     // Wait for session.updated event before marking ready (avoid race condition)
   };
 
@@ -181,6 +177,13 @@ export function handleTwilioWebSocket(connection, logger) {
         return;
       }
       
+      // Register session for request_location_tool so SMS reply can inject location
+      if (name === 'request_location_tool') {
+        if (callerNumber) {
+          setSession(callerNumber, { openAiWs, callSid, streamSid });
+        }
+      }
+
       // Execute the n8n tool
       const result = await executeN8nTool(name, args, { callSid, streamSid, callerNumber });
       
@@ -241,12 +244,12 @@ export function handleTwilioWebSocket(connection, logger) {
     
     switch (message.type) {
       case 'session.created':
-        logger.info('OpenAI session created');
+        logger.info('Azure OpenAI session created');
         // Don't wait - session config will be sent immediately
         break;
 
       case 'session.updated':
-        logger.info('OpenAI session updated');
+        logger.info('Azure OpenAI session updated');
         isOpenAiReady = true;
         processAudioQueue(); // Process any audio that arrived before session was ready
         // Send initial greeting immediately - no delay
@@ -273,7 +276,7 @@ export function handleTwilioWebSocket(connection, logger) {
 
       case 'response.audio.done':
       case 'response.output_audio.done':
-        logger.info('OpenAI audio response complete');
+        logger.info('Azure OpenAI audio response complete');
         // Send a mark event to ensure Twilio plays all buffered audio before we consider response complete
         if (streamSid && connection.socket.readyState === WebSocket.OPEN) {
           connection.socket.send(JSON.stringify({
@@ -406,11 +409,11 @@ export function handleTwilioWebSocket(connection, logger) {
           message: message.error?.message,
           param: message.error?.param,
           event_id: message.error?.event_id
-        }, 'OpenAI error occurred');
+        }, 'Azure OpenAI error occurred');
         break;
 
       default:
-        logger.debug(`OpenAI message type: ${message.type}`);
+        logger.debug(`Azure OpenAI message type: ${message.type}`);
     }
   };
 
@@ -548,6 +551,7 @@ export function handleTwilioWebSocket(connection, logger) {
       isConversationClosed = true;
       await chatwootLogger.close();
     }
+    if (callerNumber) removeSession(callerNumber);
     if (openAiWs?.readyState === WebSocket.OPEN) {
       openAiWs.close();
     }
@@ -557,4 +561,27 @@ export function handleTwilioWebSocket(connection, logger) {
   connection.socket.on('error', (error) => {
     logger.error('Twilio WebSocket error:', error);
   });
+}
+
+export function injectLocation(phone, { station, address, distance, coordinates }) {
+  const session = getSession(phone);
+  if (!session || session.openAiWs?.readyState !== WebSocket.OPEN) return { success: false };
+
+  session.openAiWs.send(JSON.stringify({
+    type: 'conversation.item.create',
+    item: {
+      type: 'message',
+      role: 'user',
+      content: [{
+        type: 'input_text',
+        text:
+          `[SYSTEM: Caller replied via SMS. Location: ${coordinates}. ` +
+          `Nearest EV charging station: "${station}" at ${address} (${distance}km away). ` +
+          `Tell the caller about this station.]`
+      }]
+    }
+  }));
+  session.openAiWs.send(JSON.stringify({ type: 'response.create' }));
+  removeSession(phone);
+  return { success: true };
 }

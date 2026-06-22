@@ -6,13 +6,9 @@
     "sourcePhoneNumbers": [
       "+33159030154"
     ],
-    "lastProblem": "Le client a demandé de l'aide concernant une station de recharge nommée LECROSS. Il n'a pas précisé de problème particulier, mais il semblait avoir des questions sur son utilisation ou son fonctionnement. Aucun identifiant utilisateur ou réseau spécifique n'a été mentionné durant l'appel.",
-    "lastResolution": "L'agent a proposé d'écouter les questions du client concernant la station LECROSS, mais aucune action concrète n'a été entreprise car le client n'a pas fourni de détails supplémentaires sur son problème. La situation reste donc non résolue, en attente de plus d'informations de la part du client.",
+    "lastProblem": "Le client, identifié comme Adélie, a un problème pour sélectionner la charge sur une station de recharge. Il a mentionné qu'il se trouve à une station appelée 'MyBorne', qui fait partie du réseau Borneco. Le client a essayé de débrancher et rebrancher le câble, mais cela n'a pas résolu le problème. Il a demandé de l'aide pour lancer la charge, mais il a eu des difficultés à communiquer le nom exact de la station.",
+    "lastResolution": "L'agent a tenté de vérifier la station 'MyBorne' sur le réseau Borneco, mais a rencontré une erreur système. L'agent a proposé de transférer le client à un collègue pour obtenir une assistance supplémentaire. Le problème n'a pas été résolu lors de cet appel, et le client a été informé qu'il serait mis en contact avec un autre agent pour une aide plus approfondie.",
     "conversationSummaries": [
-      {
-        "date": "2026-06-03T09:00:27.799Z",
-        "summary": "Le client, Dupont, a contacté le service client pour un problème de démarrage de charge sur la station ID 12345 à Paris. Il a rencontré un message d'erreur de paiement échoué en utilisant son badge RFID. Bien qu'une tentative de démarrage à distance ait été effectuée, le problème n'a pas été complètement résolu. Le client doit mettre à jour ses informations de paiement et a demandé un rappel pour obtenir de l'aide supplémentaire."
-      },
       {
         "date": "2026-06-04T08:29:41.361Z",
         "summary": "Le client, qui n'a pas donné son nom, a contacté le service client pour signaler un problème de démarrage de charge sur la station ID 4567 du réseau Horizon. Malgré mes tentatives pour initier la charge à distance, l'erreur de connexion a empêché la résolution du problème. Le client a été conseillé de vérifier sa connexion Internet et de rappeler si nécessaire. Il semblait frustré par la situation, ayant déjà rencontré des problèmes similaires auparavant."
@@ -24,10 +20,18 @@
       {
         "date": "2026-06-04T08:45:57.945Z",
         "summary": "Le client a contacté le service client ev24 pour poser une question sur la station de recharge LECROSS. L'agent, Marc, a tenté de clarifier la demande du client, mais ce dernier n'a pas fourni d'informations précises sur son problème. L'appel est resté ouvert sans résolution, le client n'ayant pas détaillé ses préoccupations."
+      },
+      {
+        "date": "2026-06-04T08:48:23.260Z",
+        "summary": "Le client a contacté le service client ev24 pour un problème avec une station de charge, sans spécifier laquelle. L'assistant, Marc, a proposé une solution simple pour essayer de résoudre le problème en débranchant et rebranchant le câble. À ce moment, le client n'a pas encore mis en œuvre cette solution, et le problème reste donc non résolu."
+      },
+      {
+        "date": "2026-06-04T09:00:04.364Z",
+        "summary": "Le client, Adélie, a contacté le support pour un problème de sélection de charge à la station 'MyBorne' du réseau Borneco. Après avoir essayé de débrancher et rebrancher le câble sans succès, l'agent a tenté de vérifier la station mais a rencontré une erreur système. L'agent a proposé de transférer le client à un collègue pour une assistance supplémentaire, car le problème n'a pas été résolu durant cet appel. Il est important de noter que le client a eu des difficultés à communiquer le nom exact de la station."
       }
     ],
-    "lastCallDate": "2026-06-04T08:45:57.945Z",
-    "callCount": 4
+    "lastCallDate": "2026-06-04T09:00:04.364Z",
+    "callCount": 6
   },
   "+33699966853": {
     "name": "Claire",
@@ -54,8 +58,8 @@
     "sourcePhoneNumbers": [
       "+33183647040"
     ],
-    "lastProblem": "Le client, Mohamed, a rencontré un problème pour recharger sa voiture près de l'église, car son carte RFID ne s'est pas remplacée. Il a mentionné qu'il était à l'endroit le plus proche de l'église, mais n'a pas pu effectuer la recharge. Il a utilisé une carte RFID pour le paiement, mais n'a pas pu fournir l'ID de la carte en raison de la confidentialité.",
-    "lastResolution": "L'agent a proposé de vérifier la validité de la carte RFID, mais comme le client ne pouvait pas fournir l'ID, l'agent a suggéré d'utiliser l'application pour vérifier la carte ou de transférer l'appel à un collègue. Le client a décidé d'essayer de résoudre le problème par lui-même et a promis de rappeler plus tard. Le problème reste donc non résolu pour le moment.",
+    "lastProblem": "Le client, Mohamed, a appelé pour obtenir des informations sur la solution EV24 AI et sa compatibilité avec le réseau Borneco à Paris, en particulier pour une station près de la Tour Eiffel. Il a mentionné que sa femme avait besoin de recharger leur voiture électrique et cherchait la borne la plus proche. Il a demandé des détails sur l'état de la station Borneco à cette localisation.",
+    "lastResolution": "Le représentant a confirmé que la station Borneco au 38 avenue de New York, près de la Tour Eiffel, était opérationnelle, avec un connecteur en charge et un autre en préparation. Mohamed a été orienté pour que sa femme puisse se rendre à cette station et démarrer la charge. Le problème a été résolu en fournissant les informations nécessaires, et aucune action supplémentaire n'était requise de la part de Mohamed.",
     "conversationSummaries": [
       {
         "date": "2026-06-03T11:16:37.616Z",
@@ -72,10 +76,14 @@
       {
         "date": "2026-06-03T14:37:52.839Z",
         "summary": "Mohamed a contacté le service client d'ev24 pour un problème de recharge de sa voiture près de l'église, où sa carte RFID ne fonctionnait pas. L'agent a essayé de l'aider en lui demandant des informations sur la carte, mais le client a refusé de partager l'ID pour des raisons de confidentialité. Mohamed a décidé d'essayer de résoudre le problème par lui-même et de rappeler plus tard. L'agent a proposé de continuer l'assistance une fois que le client serait prêt."
+      },
+      {
+        "date": "2026-06-04T10:08:11.535Z",
+        "summary": "Mohamed a contacté le service client d'ev24 pour des informations sur la solution EV24 AI et sa compatibilité avec le réseau Borneco à Paris. Après plusieurs vérifications, il a été informé que la station Borneco près de la Tour Eiffel était opérationnelle. Il a été conseillé d'orienter sa femme vers cette station pour recharger leur voiture électrique. La conversation s'est terminée de manière positive, avec Mohamed remerciant le représentant pour son aide."
       }
     ],
-    "lastCallDate": "2026-06-03T14:37:52.839Z",
-    "callCount": 4
+    "lastCallDate": "2026-06-04T10:08:11.535Z",
+    "callCount": 5
   },
   "+33651573993": {
     "name": null,
@@ -92,5 +100,25 @@
     ],
     "lastCallDate": "2026-06-03T12:17:48.447Z",
     "callCount": 1
+  },
+  "+33644643789": {
+    "name": null,
+    "phoneNumber": "+33644643789",
+    "referencePhoneNumber": null,
+    "sourcePhoneNumbers": [],
+    "lastProblem": "Le client a tenté de contacter le service client d'ev24 pour signaler un problème, mais il n'a pas réussi à fournir son numéro de client. Il a mentionné que la situation était une 'catastrophe', ce qui indique une frustration ou un problème sérieux. Aucun détail spécifique sur une station, un connecteur ou un réseau n'a été fourni durant l'appel.",
+    "lastResolution": "L'agent a demandé au client de répéter son numéro de client lentement, mais le client n'a pas fourni cette information et a finalement mis fin à l'appel. Par conséquent, le problème n'a pas été résolu, et aucune action supplémentaire n'a été prise. L'agent n'a pas pu escalader le problème en raison du manque d'informations de la part du client.",
+    "conversationSummaries": [
+      {
+        "date": "2026-06-05T12:37:05.058Z",
+        "summary": "Le client a commencé la conversation en demandant des informations sur l'adresse latitude, en insistant sur la simplicité de la demande. Cependant, il n'a pas fourni de détails supplémentaires ni précisé le service souhaité. La conversation n'a pas abouti à une résolution, et le client semble avoir besoin de clarifications pour avancer."
+      },
+      {
+        "date": "2026-06-05T12:37:37.275Z",
+        "summary": "Le client a contacté le service client d'ev24, exprimant une frustration importante sans fournir d'informations claires sur son numéro de client. L'agent, Marc, a tenté de clarifier la situation en demandant le numéro, mais le client a quitté l'appel sans donner d'informations supplémentaires. Il est important de noter que le client semblait très frustré, ce qui pourrait indiquer un problème sérieux avec le service."
+      }
+    ],
+    "lastCallDate": "2026-06-05T12:37:37.275Z",
+    "callCount": 2
   }
 }

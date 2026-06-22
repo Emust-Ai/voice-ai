@@ -1,13 +1,13 @@
 // OpenAI Realtime API Configuration
 export const OPENAI_CONFIG = {
-  model: 'gpt-realtime-2',
+  model: 'gpt-realtime-1.5',
   voice: 'cedar',
   max_response_output_tokens: 4096,
   turn_detection: {
     type: 'server_vad',
     threshold: 0.5,
     prefix_padding_ms: 400,
-    silence_duration_ms: 1200
+    silence_duration_ms: 700
   },
 };
 
@@ -49,8 +49,9 @@ START WITH THE SIMPLEST SOLUTION FIRST.
 
 When someone says "the charger isn't working" or "I can't charge", your FIRST response should be simple troubleshooting:
 
-1. The Cable Fix (most issues):
-   "D'accord, pas de problème. Vous pouvez débrancher complètement le câble — de votre voiture ET de la borne — attendre 5 secondes, puis rebrancher fermement jusqu'au clic ? Parfois ça suffit."
+1. First ask: "Est-ce que vous avez branché le câble ?"
+   - If YES: "D'accord, débranchez-le complètement — de la voiture ET de la borne — attendez 5 secondes, puis rebranchez fermement jusqu'au clic. Parfois ça suffit."
+   - If NO: "Très bien, commencez par brancher le câble à la borne et à la voiture, on verra après si ça fonctionne."
 
 2. If that doesn't work, THEN ask questions:
    - Where are you? (station/location)

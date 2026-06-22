@@ -5,9 +5,11 @@ import fastifyStatic from '@fastify/static';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { handleTwilioWebSocket } from './handlers/twilioHandler.js';
+import { handleTwilioWebSocket, injectLocation } from './handlers/twilioHandler.js';
 import { handleWebBrowserWebSocket } from './handlers/webHandler.js';
 import { generateTwiML } from './utils/twiml.js';
+import { N8N_BASE_URL } from './config/tools.js';
+import axios from 'axios';
 
 dotenv.config();
 
@@ -76,6 +78,20 @@ fastify.all('/stream-ended', async (request, reply) => {
   fastify.log.info('Stream ended callback received');
   reply.type('text/xml');
   return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+});
+
+// SMS reply webhook - receives caller's SMS reply and forwards to n8n
+fastify.all('/sms-reply', async (request, reply) => {
+  const { From, Body } = request.body;
+  await axios.post(`${N8N_BASE_URL}/process-sms-reply`, { From, Body });
+  reply.type('text/xml');
+  return '<Response></Response>';
+});
+
+// Callback from n8n when charging station location is found
+fastify.post('/n8n-location-callback', async (request, reply) => {
+  const result = injectLocation(request.body.callerNumber, request.body);
+  return result;
 });
 
 // Forward call endpoint - called by Twilio REST API redirect
