@@ -6,32 +6,32 @@
     "sourcePhoneNumbers": [
       "+33159030154"
     ],
-    "lastProblem": "Le client, identifié comme Adélie, a un problème pour sélectionner la charge sur une station de recharge. Il a mentionné qu'il se trouve à une station appelée 'MyBorne', qui fait partie du réseau Borneco. Le client a essayé de débrancher et rebrancher le câble, mais cela n'a pas résolu le problème. Il a demandé de l'aide pour lancer la charge, mais il a eu des difficultés à communiquer le nom exact de la station.",
-    "lastResolution": "L'agent a tenté de vérifier la station 'MyBorne' sur le réseau Borneco, mais a rencontré une erreur système. L'agent a proposé de transférer le client à un collègue pour obtenir une assistance supplémentaire. Le problème n'a pas été résolu lors de cet appel, et le client a été informé qu'il serait mis en contact avec un autre agent pour une aide plus approfondie.",
+    "lastProblem": "La même chose, Marc. Je cherche une borne, mais je ne sais pas l'adresse. | OK. | OK. | OK.",
+    "lastResolution": "Le SMS est envoyé, regardez votre téléphone et répondez avec votre position. Je reste en ligne. | Parfait, prenez votre temps pour répondre au SMS. | Toujours là, Bonjour ? Vous avez pu répondre au SMS ?",
     "conversationSummaries": [
       {
-        "date": "2026-06-04T08:29:41.361Z",
-        "summary": "Le client, qui n'a pas donné son nom, a contacté le service client pour signaler un problème de démarrage de charge sur la station ID 4567 du réseau Horizon. Malgré mes tentatives pour initier la charge à distance, l'erreur de connexion a empêché la résolution du problème. Le client a été conseillé de vérifier sa connexion Internet et de rappeler si nécessaire. Il semblait frustré par la situation, ayant déjà rencontré des problèmes similaires auparavant."
+        "date": "2026-06-29T14:55:00.412Z",
+        "summary": "Le client a appelé et a dit: \"Mangez !\". Au total 4 messages échangés. Dernière réponse de l'assistant: \"Parfait, j’attends ton SMS de localisation.\""
       },
       {
-        "date": "2026-06-04T08:31:39.259Z",
-        "summary": "Marc Savard a contacté le service client d'ev24 pour signaler un problème avec le connecteur numéro 1 d'une station de charge. Après avoir essayé de débrancher et rebrancher le câble sans succès, l'assistant a tenté de vérifier le réseau mais a rencontré une erreur système. Il a proposé de transférer Marc à un collègue pour obtenir une aide supplémentaire. Il est important de noter que le problème n'a pas été résolu lors de cet appel."
+        "date": "2026-06-29T14:57:38.709Z",
+        "summary": "Le client a appelé et a dit: \"Bonjour, je cherche une borne, mais je ne sais pas l'adresse.\". Au total 2 messages échangés. Dernière réponse de l'assistant: \"Pas de souci, prenez le temps. Je reste en ligne si vous avez besoin.\""
       },
       {
-        "date": "2026-06-04T08:45:57.945Z",
-        "summary": "Le client a contacté le service client ev24 pour poser une question sur la station de recharge LECROSS. L'agent, Marc, a tenté de clarifier la demande du client, mais ce dernier n'a pas fourni d'informations précises sur son problème. L'appel est resté ouvert sans résolution, le client n'ayant pas détaillé ses préoccupations."
+        "date": "2026-06-29T15:03:05.643Z",
+        "summary": "Le client a appelé et a dit: \"Merci d'avoir regardé cette vidéo.\". Au total 4 messages échangés. Dernière réponse de l'assistant: \"Avec plaisir. Je reste en ligne si vous avez besoin d’autre chose.\""
       },
       {
-        "date": "2026-06-04T08:48:23.260Z",
-        "summary": "Le client a contacté le service client ev24 pour un problème avec une station de charge, sans spécifier laquelle. L'assistant, Marc, a proposé une solution simple pour essayer de résoudre le problème en débranchant et rebranchant le câble. À ce moment, le client n'a pas encore mis en œuvre cette solution, et le problème reste donc non résolu."
+        "date": "2026-06-30T11:07:37.718Z",
+        "summary": "Le client a appelé et a dit: \"Je cherche une borne, mais je ne sais pas l'adresse.\". Au total 3 messages échangés. Dernière réponse de l'assistant: \"Le SMS est envoyé, regardez votre téléphone et répondez avec votre position. Je reste en ligne en attendant.\""
       },
       {
-        "date": "2026-06-04T09:00:04.364Z",
-        "summary": "Le client, Adélie, a contacté le support pour un problème de sélection de charge à la station 'MyBorne' du réseau Borneco. Après avoir essayé de débrancher et rebrancher le câble sans succès, l'agent a tenté de vérifier la station mais a rencontré une erreur système. L'agent a proposé de transférer le client à un collègue pour une assistance supplémentaire, car le problème n'a pas été résolu durant cet appel. Il est important de noter que le client a eu des difficultés à communiquer le nom exact de la station."
+        "date": "2026-06-30T14:18:20.320Z",
+        "summary": "Le client a appelé et a dit: \"La même chose, Marc. Je cherche une borne, mais je ne sais pas l'adresse.\". Au total 4 messages échangés. Dernière réponse de l'assistant: \"Toujours là, Bonjour ? Vous avez pu répondre au SMS ?\""
       }
     ],
-    "lastCallDate": "2026-06-04T09:00:04.364Z",
-    "callCount": 6
+    "lastCallDate": "2026-06-30T14:18:20.320Z",
+    "callCount": 12
   },
   "+33699966853": {
     "name": "Claire",
@@ -120,5 +120,23 @@
     ],
     "lastCallDate": "2026-06-05T12:37:37.275Z",
     "callCount": 2
+  },
+  "+0652455532": {
+    "name": null,
+    "phoneNumber": "+0652455532",
+    "referencePhoneNumber": "+0652455532",
+    "sourcePhoneNumbers": [
+      "+33159030154"
+    ],
+    "lastProblem": "Au revoir. | Bonjour, bonjour, bonjour. | Noms importants.  | C'est joli ça. Je suis allé aussi voir! | Bon rôlement.",
+    "lastResolution": "Parfait, j’ai renvoyé le SMS sur ce numéro. Dis-moi quand tu peux répondre avec ta position. | Pas de souci, prends ton temps et réponds au SMS quand tu peux. Je reste en ligne si tu as besoin. | D'accord, je reste là si tu as besoin d'aide. Tu arrives à répondre au SMS ou tu veux qu’on trouve une autre solution ?",
+    "conversationSummaries": [
+      {
+        "date": "2026-06-29T15:00:59.123Z",
+        "summary": "Le client a appelé et a dit: \"Au revoir.\". Au total 15 messages échangés. Dernière réponse de l'assistant: \"D'accord, je reste là si tu as besoin d'aide. Tu arrives à répondre au SMS ou tu veux qu’on trouve une autre solution ?\""
+      }
+    ],
+    "lastCallDate": "2026-06-29T15:00:59.123Z",
+    "callCount": 1
   }
 }

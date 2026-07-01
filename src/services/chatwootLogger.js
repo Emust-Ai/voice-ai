@@ -91,8 +91,14 @@ class ChatwootLogger {
       timestamp: new Date().toISOString()
     };
     this.messages.push(message);
+    this.partialTranscriptBuffer = '';
     this.saveToFile();
     console.log(`[ASSISTANT]: ${text}`);
+  }
+
+  // Log partial AI transcript as it's being generated (streaming)
+  logPartialAssistant(delta) {
+    this.partialTranscriptBuffer = (this.partialTranscriptBuffer || '') + delta;
   }
 
   // Save to local JSON file

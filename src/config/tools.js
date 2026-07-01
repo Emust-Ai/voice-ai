@@ -341,7 +341,7 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'request_location_tool',
-    description: 'Send SMS to caller asking for location to find nearest EV charging station. Use when caller needs a charging station but doesn\'t know where they are.',
+    description: 'Send SMS to caller asking for their location (address or GPS coordinates). Use ONLY when the caller wants to find the nearest charging station but does NOT know their address or current location. After calling this tool, tell the caller to check their phone and reply with their location.',
     parameters: {
       type: 'object',
       properties: {

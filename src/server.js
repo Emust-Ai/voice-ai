@@ -9,6 +9,7 @@ import { handleTwilioWebSocket, injectLocation } from './handlers/twilioHandler.
 import { handleWebBrowserWebSocket } from './handlers/webHandler.js';
 import { generateTwiML } from './utils/twiml.js';
 import { N8N_BASE_URL } from './config/tools.js';
+import { findNearestStation, parseLocation } from './services/openChargeMapService.js';
 import axios from 'axios';
 
 dotenv.config();
@@ -80,10 +81,49 @@ fastify.all('/stream-ended', async (request, reply) => {
   return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
 });
 
-// SMS reply webhook - receives caller's SMS reply and forwards to n8n
+// SMS reply webhook - receives caller's SMS reply, looks up nearest station
 fastify.all('/sms-reply', async (request, reply) => {
   const { From, Body } = request.body;
-  await axios.post(`${N8N_BASE_URL}/process-sms-reply`, { From, Body });
+  const callerNumber = From;
+
+  fastify.log.info(`SMS reply from ${callerNumber}: "${Body}"`);
+
+  const parsed = parseLocation(Body);
+  let coordinates = null;
+  let station = null;
+  let address = null;
+  let distance = null;
+
+  if (parsed?.type === 'coordinates') {
+    coordinates = `${parsed.lat}, ${parsed.lng}`;
+    const result = await findNearestStation(parsed.lat, parsed.lng);
+    if (result.success && result.nearest) {
+      station = result.nearest.name;
+      address = result.nearest.address;
+      distance = result.nearest.distance;
+      fastify.log.info(`Found nearest station: ${station} at ${address} (${distance}km)`);
+    }
+  } else {
+    // Text-only location — inject raw text for AI to interpret
+    coordinates = Body;
+    station = 'the location';
+    address = Body;
+    distance = 'unknown';
+  }
+
+  // Inject into the active conversation
+  const injectResult = injectLocation(callerNumber, {
+    station,
+    address,
+    distance,
+    coordinates
+  });
+
+  if (!injectResult.success) {
+    fastify.log.warn(`No active session for ${callerNumber} — SMS location not injected`);
+    // TODO: could queue for next call if needed
+  }
+
   reply.type('text/xml');
   return '<Response></Response>';
 });

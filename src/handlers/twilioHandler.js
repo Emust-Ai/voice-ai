@@ -7,6 +7,23 @@ import { billVoiceUsage } from '../services/billingService.js';
 import { lookupCaller, saveCallerInfo, saveCallerContext, generateCallerContextPrompt } from '../services/userContextService.js';
 import { generateConversationSummaryForContext } from '../services/conversationSummarizer.js';
 import { setSession, getSession, removeSession } from '../utils/callState.js';
+import { classifyIntent } from '../services/intentClassifier.js';
+import { CallMemory } from '../services/callMemory.js';
+import { executeN8nToolsParallel } from '../services/n8nService.js';
+import twilio from 'twilio';
+
+// Lazily initialize Twilio client
+let twilioClientInstance = null;
+const getTwilioClient = () => {
+  if (!twilioClientInstance) {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (accountSid && authToken) {
+      twilioClientInstance = twilio(accountSid, authToken);
+    }
+  }
+  return twilioClientInstance;
+};
 
 // Build Azure OpenAI Realtime WebSocket URL
 const getAzureOpenAIRealtimeUrl = () => {
@@ -32,6 +49,16 @@ export function handleTwilioWebSocket(connection, logger) {
   let waitingForPlaybackDrain = false; // Wait for Twilio mark before accepting interruption
   let callerContext = null; // Persistent user context from previous calls
   let activeProfilePhoneNumber = null; // Context anchor (can switch to end-client number for CPO calls)
+  let firstUserMessageClassified = false; // Track if we've classified the first user message
+  let callMemory = null; // Short-term session memory (Task 2)
+  let toolCallBuffer = []; // Buffer for parallel tool call batching (Task 6)
+  let toolCallTimer = null; // Debounce timer for tool call batching
+  const TOOL_BATCH_WINDOW_MS = 300; // Window to collect concurrent tool calls
+  let silenceTimer = null; // Timer for silence-based proactive help (Task 7)
+  let lastUserMessages = []; // Last 3 user transcripts for repetition detection (Task 7)
+  let lastSilenceInjection = 0; // Prevent repeated silence injections
+  const SILENCE_TIMEOUT_MS = 8000; // 8s of silence triggers help offer
+  const SILENCE_INJECTION_COOLDOWN = 30000; // Don't inject again within 30s
 
   const parseMs = (value, fallback) => {
     const parsed = Number.parseInt(value, 10);
@@ -177,15 +204,54 @@ export function handleTwilioWebSocket(connection, logger) {
         return;
       }
       
-      // Register session for request_location_tool so SMS reply can inject location
+      // Handle request_location_tool locally — send SMS via Twilio, don't go through n8n
       if (name === 'request_location_tool') {
         if (callerNumber) {
           setSession(callerNumber, { openAiWs, callSid, streamSid });
         }
+        if (callMemory) {
+          callMemory.addToolCall(name, args, null);
+        }
+        // Send SMS asking for location via Twilio
+        try {
+          const twilioClient = getTwilioClient();
+          if (twilioClient && callerNumber) {
+            const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
+            await twilioClient.messages.create({
+              body: 'ev24 — Pour trouver la borne la plus proche, répondez avec votre adresse ou votre position (ex: "45.123, 3.456" ou "10 rue de Paris"). Merci !',
+              from: twilioPhone,
+              to: callerNumber
+            });
+            logger.info(`Location SMS sent to ${callerNumber}`);
+          }
+        } catch (smsError) {
+          logger.error(`Failed to send location SMS: ${smsError.message}`);
+        }
+        const toolResponse = {
+          type: 'conversation.item.create',
+          item: {
+            type: 'function_call_output',
+            call_id: call_id,
+            output: JSON.stringify({ success: true, message: 'SMS sent to caller asking for their location.' })
+          }
+        };
+        openAiWs.send(JSON.stringify(toolResponse));
+        openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+        return;
+      }
+
+      // Feed tool call to short-term memory (Task 2)
+      if (callMemory) {
+        callMemory.addToolCall(name, args, null);
       }
 
       // Execute the n8n tool
       const result = await executeN8nTool(name, args, { callSid, streamSid, callerNumber });
+      
+      // Feed tool result to memory
+      if (callMemory) {
+        callMemory.addToolCall(name, args, result);
+      }
       
       logger.info(`Tool ${name} result: ${JSON.stringify(result)}`);
       
@@ -235,6 +301,113 @@ export function handleTwilioWebSocket(connection, logger) {
     }
   };
 
+  // Flush buffered tool calls with parallel execution (Task 6)
+  const flushToolCallBuffer = async () => {
+    toolCallTimer = null;
+    const buffer = toolCallBuffer;
+    toolCallBuffer = [];
+
+    if (buffer.length === 0) return;
+
+    logger.info(`Flushing ${buffer.length} tool call(s) in parallel`);
+
+    // Separate local tools from n8n tools
+    const localTools = buffer.filter(tc => tc.name === 'save_caller_info' || tc.name === 'request_location_tool');
+    const n8nTools = buffer.filter(tc => tc.name !== 'save_caller_info' && tc.name !== 'request_location_tool');
+
+    // Process local tools immediately
+    for (const tc of localTools) {
+      await handleToolCall(tc);
+    }
+
+    if (n8nTools.length === 0) return;
+
+    // Execute n8n tools in parallel
+    const results = await executeN8nToolsParallel(
+      n8nTools.map(tc => ({
+        name: tc.name,
+        args: JSON.parse(tc.arguments),
+        callId: tc.call_id
+      })),
+      { callSid, streamSid, callerNumber }
+    );
+
+    // Feed results to memory and send back to OpenAI
+    for (const tc of n8nTools) {
+      let args;
+      try { args = JSON.parse(tc.arguments); } catch { args = {}; }
+      const result = results[tc.call_id] || { success: false, error: 'No result' };
+
+      if (callMemory) {
+        callMemory.addToolCall(tc.name, args, result);
+      }
+
+      logger.info(`Tool ${tc.name} result: ${JSON.stringify(result)}`);
+
+      const toolResponse = {
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: tc.call_id,
+          output: JSON.stringify(result)
+        }
+      };
+      if (openAiWs?.readyState === WebSocket.OPEN) {
+        openAiWs.send(JSON.stringify(toolResponse));
+      }
+
+      if (tc.name === 'priority' && result.success !== false) {
+        logger.info(`Human callback requested for caller ${callerNumber}. Reason: ${args.reason || 'Not specified'}`);
+        if (chatwootLogger) {
+          chatwootLogger.markHumanEscalation();
+        }
+      }
+    }
+
+    // Trigger OpenAI to continue after all results
+    if (openAiWs?.readyState === WebSocket.OPEN) {
+      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+    }
+  };
+
+  // Start silence timer for proactive help (Task 7)
+  const startSilenceTimer = () => {
+    cancelSilenceTimer();
+    // Don't start timer if response is active (AI still generating)
+    if (isResponseActive) return;
+    const now = Date.now();
+    if (now - lastSilenceInjection < SILENCE_INJECTION_COOLDOWN) return;
+    silenceTimer = setTimeout(() => {
+      const currentResponseActive = isResponseActive;
+      const now2 = Date.now();
+      if (!currentResponseActive && now2 - lastSilenceInjection >= SILENCE_INJECTION_COOLDOWN) {
+        logger.info('Silence timeout — user hasn\'t spoken, injecting proactive help');
+        lastSilenceInjection = now2;
+        if (openAiWs?.readyState === WebSocket.OPEN) {
+          openAiWs.send(JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'message',
+              role: 'system',
+              content: [{
+                type: 'input_text',
+                text: '[SYSTEM: Caller has been silent for several seconds. If you asked a question and are waiting for a response, offer to help: "Pas de souci, prenez votre temps." Or if you\'ve been troubleshooting, ask if they want a human agent: "Souhaitez-vous que je vous mette en contact avec un collègue ?"]'
+              }]
+            }
+          }));
+          openAiWs.send(JSON.stringify({ type: 'response.create' }));
+        }
+      }
+    }, SILENCE_TIMEOUT_MS);
+  };
+
+  const cancelSilenceTimer = () => {
+    if (silenceTimer) {
+      clearTimeout(silenceTimer);
+      silenceTimer = null;
+    }
+  };
+
   // Handle messages from OpenAI
   const handleOpenAiMessage = (message) => {
     // Log all message types for debugging
@@ -277,6 +450,8 @@ export function handleTwilioWebSocket(connection, logger) {
       case 'response.audio.done':
       case 'response.output_audio.done':
         logger.info('Azure OpenAI audio response complete');
+        // Start silence timer for hesitation detection (Task 7)
+        startSilenceTimer();
         // Send a mark event to ensure Twilio plays all buffered audio before we consider response complete
         if (streamSid && connection.socket.readyState === WebSocket.OPEN) {
           connection.socket.send(JSON.stringify({
@@ -294,6 +469,8 @@ export function handleTwilioWebSocket(connection, logger) {
       case 'input_audio_buffer.speech_started':
         {
         const now = Date.now();
+        // Cancel silence timer — user is speaking (Task 7)
+        cancelSilenceTimer();
         // Echo suppression: ignore speech detection shortly after AI finishes speaking
         if (now < echoCooldownUntil) {
           logger.info('Ignoring speech_started during echo cooldown');
@@ -324,12 +501,124 @@ export function handleTwilioWebSocket(connection, logger) {
           if (chatwootLogger) {
             chatwootLogger.logUser(message.transcript);
           }
+          // Feed to short-term memory (Task 2)
+          if (callMemory) {
+            callMemory.addUserMessage(message.transcript);
+          }
+          // Hesitation and repetition detection (Task 7)
+          const transcript = message.transcript.trim().toLowerCase();
+          lastUserMessages.push(transcript);
+          if (lastUserMessages.length > 3) lastUserMessages.shift();
+          // Check for hesitation fillers
+          const hesitationPatterns = [
+            /euh|euuuh|heu|hm|mmm/i,
+            /je sais pas|j'sais pas|je ne sais pas/i,
+            /j'comprends pas|je comprends pas|comprends rien/i,
+            /c'est compliqué|trop compliqué/i,
+            /j'ai du mal|j'y arrive pas/i,
+            /pouvez-vous répéter|vous pouvez répéter/i,
+            /excusez-moi|désolé.*comprends/i,
+          ];
+          const hasHesitation = hesitationPatterns.some(p => p.test(transcript));
+          // Check for repetition (same intent said twice)
+          let isRepeating = false;
+          if (lastUserMessages.length >= 2) {
+            const last = lastUserMessages[lastUserMessages.length - 1];
+            const prev = lastUserMessages[lastUserMessages.length - 2];
+            if (last && prev && last !== prev) {
+              const lastWords = new Set(last.split(/\s+/).filter(w => w.length > 3));
+              const prevWords = new Set(prev.split(/\s+/).filter(w => w.length > 3));
+              if (lastWords.size > 0 && prevWords.size > 0) {
+                let overlap = 0;
+                for (const w of lastWords) if (prevWords.has(w)) overlap++;
+                const ratio = overlap / Math.min(lastWords.size, prevWords.size);
+                if (ratio > 0.6 && lastWords.size > 1) isRepeating = true;
+              }
+            }
+          }
+          if (hasHesitation || isRepeating) {
+            const reason = hasHesitation ? 'hesitation' : 'repetition';
+            logger.info(`Detected user ${reason}: "${transcript.substring(0, 60)}"`);
+            if (openAiWs?.readyState === WebSocket.OPEN) {
+              openAiWs.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                  type: 'message',
+                  role: 'system',
+                  content: [{
+                    type: 'input_text',
+                    text: `[SYSTEM: Caller showed ${reason} ("${transcript.substring(0, 80)}"). Offer simplified help or human escalation if appropriate.]`
+                  }]
+                }
+              }));
+            }
+          }
+          // Intent classification on first user message (Task 3)
+          if (!firstUserMessageClassified) {
+            firstUserMessageClassified = true;
+            classifyIntent(message.transcript).then(result => {
+              logger.info(`Intent classified: ${result.intent} (confidence: ${result.confidence})`);
+              if (callMemory && result.intent !== 'other') {
+                callMemory.setIntent(result.intent);
+                if (result.slots.tenant) callMemory.setInfo('tenant', result.slots.tenant);
+                if (result.slots.station) callMemory.setInfo('station', result.slots.station);
+                if (result.slots.problem) callMemory.setInfo('problem', result.slots.problem);
+              }
+              if (result.confidence >= 0.5 && result.intent !== 'greeting' && result.intent !== 'other') {
+                // Inject intent info + memory snapshot as system message for the AI
+                const intentMsg = `[INTENT: ${result.intent}]`;
+                const slots = result.slots;
+                const slotParts = [];
+                if (slots.tenant) slotParts.push(`tenant="${slots.tenant}"`);
+                if (slots.station) slotParts.push(`station="${slots.station}"`);
+                if (slots.problem) slotParts.push(`problem="${slots.problem}"`);
+                if (slots.method) slotParts.push(`method="${slots.method}"`);
+                const slotStr = slotParts.length > 0 ? ` Slots: ${slotParts.join(', ')}.` : '';
+                const memorySnapshot = callMemory ? callMemory.getStateSnapshot() : null;
+                const memoryStr = memorySnapshot ? ` ${memorySnapshot}` : '';
+                const fullMsg = intentMsg + slotStr + memoryStr;
+                logger.info(`Injecting intent + memory: ${fullMsg}`);
+                if (openAiWs?.readyState === WebSocket.OPEN) {
+                  openAiWs.send(JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                      type: 'message',
+                      role: 'system',
+                      content: [{ type: 'input_text', text: fullMsg }]
+                    }
+                  }));
+                }
+              }
+              // Trigger periodic summary (Task 2)
+              if (callMemory && callMemory.shouldSummarize()) {
+                callMemory.markSummarized();
+                const summarySnapshot = callMemory.getStateSnapshot();
+                if (summarySnapshot && openAiWs?.readyState === WebSocket.OPEN) {
+                  openAiWs.send(JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                      type: 'message',
+                      role: 'system',
+                      content: [{ type: 'input_text', text: summarySnapshot }]
+                    }
+                  }));
+                  logger.info(`Injected periodic memory summary`);
+                }
+              }
+            }).catch(err => {
+              logger.error(`Intent classification failed: ${err.message}`);
+            });
+          }
         }
         break;
 
       case 'response.output_audio_transcript.delta':
         if (message.delta) {
           logger.info(`Assistant (partial): ${message.delta}`);
+          // Forward partial transcript to Chatwoot for real-time streaming visibility (Task 1)
+          if (chatwootLogger && chatwootLogger.logPartialAssistant) {
+            chatwootLogger.logPartialAssistant(message.delta);
+          }
         }
         break;
 
@@ -338,6 +627,9 @@ export function handleTwilioWebSocket(connection, logger) {
           logger.info(`Assistant: ${message.transcript}`);
           if (chatwootLogger) {
             chatwootLogger.logAssistant(message.transcript);
+          }
+          if (callMemory) {
+            callMemory.addAssistantMessage(message.transcript);
           }
         }
         break;
@@ -382,10 +674,8 @@ export function handleTwilioWebSocket(connection, logger) {
                 }
               });
             }
-            // Handle function calls in response output
-            if (output.type === 'function_call') {
-              handleToolCall(output);
-            }
+            // Function calls are handled via response.function_call_arguments.done
+            // (with batching in Task 6) — skip here to avoid duplicate execution
           });
         }
         break;
@@ -393,11 +683,15 @@ export function handleTwilioWebSocket(connection, logger) {
       case 'response.function_call_arguments.done':
         // Handle function call when arguments are complete
         if (message.name && message.call_id) {
-          handleToolCall({
+          // Buffer for parallel execution (Task 6)
+          toolCallBuffer.push({
             name: message.name,
             arguments: message.arguments,
             call_id: message.call_id
           });
+          // Clear existing timer and set new one
+          if (toolCallTimer) clearTimeout(toolCallTimer);
+          toolCallTimer = setTimeout(() => flushToolCallBuffer(), TOOL_BATCH_WINDOW_MS);
         }
         break;
 
@@ -493,6 +787,8 @@ export function handleTwilioWebSocket(connection, logger) {
           if (callerContext?.name) {
             chatwootLogger.setCallerName(callerContext.name);
           }
+          // Initialize short-term session memory (Task 2)
+          callMemory = new CallMemory(callSid);
           logger.info(`Conversation logging started for ${callerNumber}`);
           break;
 
