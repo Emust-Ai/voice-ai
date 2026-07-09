@@ -11,6 +11,11 @@ import { classifyIntent } from '../services/intentClassifier.js';
 import { CallMemory } from '../services/callMemory.js';
 import { executeN8nToolsParallel } from '../services/n8nService.js';
 import twilio from 'twilio';
+import { eventBus } from '../services/eventBus.js';
+import { registerSession, unregisterSession } from '../routes/supervisor.js';
+import { createConversation, addMessage as addDbMessage, updateConversation } from '../services/conversationStore.js';
+import { scoreExchange } from '../services/supervisorService.js';
+import { generateScorecard } from '../services/scorecardService.js';
 
 // Lazily initialize Twilio client
 let twilioClientInstance = null;
@@ -51,6 +56,7 @@ export function handleTwilioWebSocket(connection, logger) {
   let activeProfilePhoneNumber = null; // Context anchor (can switch to end-client number for CPO calls)
   let firstUserMessageClassified = false; // Track if we've classified the first user message
   let callMemory = null; // Short-term session memory (Task 2)
+  let dbConversationId = null; // DB conversation ID for the supervisor
   let toolCallBuffer = []; // Buffer for parallel tool call batching (Task 6)
   let toolCallTimer = null; // Debounce timer for tool call batching
   const TOOL_BATCH_WINDOW_MS = 300; // Window to collect concurrent tool calls
@@ -69,6 +75,15 @@ export function handleTwilioWebSocket(connection, logger) {
   const createVoiceResponseEvent = () => ({
     type: 'response.create'
   });
+
+  const triggerResponse = () => {
+    if (callMemory?.aiPaused || callMemory?.takeover) {
+      return;
+    }
+    if (openAiWs?.readyState === WebSocket.OPEN) {
+      openAiWs.send(JSON.stringify({ type: 'response.create' }));
+    }
+  };
 
   // Connect to OpenAI Realtime API
   const connectToOpenAI = () => {
@@ -200,7 +215,7 @@ export function handleTwilioWebSocket(connection, logger) {
           }
         };
         openAiWs.send(JSON.stringify(toolResponse));
-        openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+        triggerResponse();
         return;
       }
       
@@ -236,7 +251,7 @@ export function handleTwilioWebSocket(connection, logger) {
           }
         };
         openAiWs.send(JSON.stringify(toolResponse));
-        openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+        triggerResponse();
         return;
       }
 
@@ -268,7 +283,7 @@ export function handleTwilioWebSocket(connection, logger) {
       openAiWs.send(JSON.stringify(toolResponse));
       
       // Trigger OpenAI to continue the response
-      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+      triggerResponse();
       
       // If priority (human escalation) tool was called successfully, log it
       if (name === 'priority' && result.success !== false) {
@@ -297,7 +312,7 @@ export function handleTwilioWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(errorResponse));
-      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+      triggerResponse();
     }
   };
 
@@ -366,7 +381,7 @@ export function handleTwilioWebSocket(connection, logger) {
 
     // Trigger OpenAI to continue after all results
     if (openAiWs?.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+      triggerResponse();
     }
   };
 
@@ -501,6 +516,18 @@ export function handleTwilioWebSocket(connection, logger) {
           if (chatwootLogger) {
             chatwootLogger.logUser(message.transcript);
           }
+          // Emit to supervisor dashboard (Task 7)
+          if (callSid) {
+            eventBus.emitTranscript(callSid, { role: 'user', content: message.transcript });
+            // Store in DB (async)
+            if (dbConversationId) {
+              addDbMessage({
+                conversationId: dbConversationId,
+                role: 'user',
+                content: message.transcript
+              }).catch(() => {});
+            }
+          }
           // Feed to short-term memory (Task 2)
           if (callMemory) {
             callMemory.addUserMessage(message.transcript);
@@ -631,6 +658,29 @@ export function handleTwilioWebSocket(connection, logger) {
           if (callMemory) {
             callMemory.addAssistantMessage(message.transcript);
           }
+          // Emit to supervisor dashboard
+          if (callSid) {
+            eventBus.emitTranscript(callSid, { role: 'assistant', content: message.transcript });
+            if (dbConversationId) {
+              addDbMessage({
+                conversationId: dbConversationId,
+                role: 'assistant',
+                content: message.transcript
+              }).catch(() => {});
+            }
+            // Trigger supervisor scoring (async, non-blocking)
+            const lastUserMsg = callMemory?.exchanges?.filter(e => e.role === 'user').pop();
+            if (lastUserMsg && dbConversationId) {
+              const context = {
+                tenant: callMemory?.gatheredInfo?.tenant,
+                intent: callMemory?.resolvedIntents?.[0],
+                exchangeCount: callMemory?.exchangeCount
+              };
+              scoreExchange(callSid, lastUserMsg.text, message.transcript, context).catch(err => {
+                logger.warn(`Supervisor scoring error: ${err.message}`);
+              });
+            }
+          }
         }
         break;
 
@@ -713,7 +763,7 @@ export function handleTwilioWebSocket(connection, logger) {
 
   // Send initial greeting to start conversation
   const sendInitialGreeting = () => {
-    openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+    triggerResponse();
     logger.info('Initial greeting triggered');
   };
 
@@ -789,7 +839,33 @@ export function handleTwilioWebSocket(connection, logger) {
           }
           // Initialize short-term session memory (Task 2)
           callMemory = new CallMemory(callSid);
+          // Register session for supervisor barge-in (emit events after openAiWs is ready)
           logger.info(`Conversation logging started for ${callerNumber}`);
+          // Create DB conversation + register session for supervisor (async)
+          if (callSid) {
+            registerSession(callSid, { openAiWs, connection, callMemory, streamSid, logger });
+            createConversation({
+              externalId: callSid,
+              channel: 'voice',
+              callerNumber: callerNumber,
+              callerName: callerContext?.name || null,
+              tenant: callerContext?.tenant || null
+            }).then(conv => {
+              dbConversationId = conv.id;
+              logger.info(`DB conversation created: ${conv.id}`);
+              eventBus.emitConversationUpdate(callSid, {
+                externalId: callSid,
+                caller_number: callerNumber,
+                caller_name: callerContext?.name || null,
+                channel: 'voice',
+                tenant: callerContext?.tenant || null,
+                status: 'active',
+                started_at: conv.started_at || new Date().toISOString()
+              });
+            }).catch(err => {
+              logger.warn(`Failed to create DB conversation: ${err.message}`);
+            });
+          }
           break;
 
         case 'media':
@@ -843,6 +919,14 @@ export function handleTwilioWebSocket(connection, logger) {
       }
     }
     
+    // Generate scorecard + unregister supervisor session
+    if (callSid) {
+      eventBus.emitStatusChange(callSid, 'ended');
+      generateScorecard(callSid).catch(err => {
+        logger.warn(`Failed to generate scorecard: ${err.message}`);
+      });
+      unregisterSession(callSid);
+    }
     if (chatwootLogger && !isConversationClosed) {
       isConversationClosed = true;
       await chatwootLogger.close();

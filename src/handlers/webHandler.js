@@ -4,6 +4,9 @@ import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
 import ChatwootLogger from '../services/chatwootLogger.js';
 import { billVoiceUsage } from '../services/billingService.js';
+import { createConversation, updateConversation, getConversationByExternalId } from '../services/conversationStore.js';
+import { eventBus } from '../services/eventBus.js';
+import { registerSession, unregisterSession } from '../routes/supervisor.js';
 
 // Build Azure OpenAI Realtime WebSocket URL
 const getAzureOpenAIRealtimeUrl = () => {
@@ -24,6 +27,30 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
   logger.info(`Web browser client connected - Session: ${sessionId}`);
 
+  const sessionData = { connection, callMemory: {}, streamSid: null, logger };
+  registerSession(sessionId, sessionData);
+
+  createConversation({
+    externalId: sessionId,
+    channel: 'voice',
+    callerNumber: 'web-client',
+    callerName: 'Web Client',
+    tenant: 'web'
+  }).then(conv => {
+    logger.info(`DB conversation created: ${conv.id} (web client)`);
+    eventBus.emitConversationUpdate(sessionId, {
+      externalId: sessionId,
+      caller_number: 'web-client',
+      caller_name: 'Web Client',
+      channel: 'voice',
+      tenant: 'web',
+      status: 'active',
+      started_at: conv.started_at || new Date().toISOString()
+    });
+  }).catch(err => {
+    logger.warn(`Failed to create DB conversation (web): ${err.message}`);
+  });
+
   // Connect to OpenAI Realtime API
   const connectToOpenAI = () => {
     const realtimeUrl = getAzureOpenAIRealtimeUrl();
@@ -34,6 +61,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
         'api-key': process.env.AZURE_OPENAI_API_KEY
       }
     });
+    sessionData.openAiWs = openAiWs;
 
     openAiWs.on('open', () => {
       logger.info('Connected to Azure OpenAI Realtime API (Web Client)');
@@ -106,9 +134,18 @@ export function handleWebBrowserWebSocket(connection, logger) {
     }
   };
 
+  const isAiPaused = () => sessionData.callMemory?.aiPaused || sessionData.callMemory?.takeover;
+
   const createVoiceResponseEvent = () => ({
     type: 'response.create'
   });
+
+  const triggerResponse = () => {
+    if (isAiPaused()) return;
+    if (openAiWs?.readyState === WebSocket.OPEN) {
+      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+    }
+  };
 
   // Handle tool calls from OpenAI
   const handleToolCall = async (toolCall) => {
@@ -143,7 +180,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(toolResponse));
-      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+      triggerResponse();
       
     } catch (error) {
       logger.error(`Error handling tool call ${name}:`, error);
@@ -162,7 +199,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(errorResponse));
-      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+      triggerResponse();
     }
   };
 
@@ -184,13 +221,17 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
       case 'response.audio.delta':
       case 'response.output_audio.delta':
-        isResponseActive = true; // Mark that a response is being generated
+        isResponseActive = true;
+        if (isAiPaused()) {
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
+          }
+          isResponseActive = false;
+          break;
+        }
         if (message.delta) {
-          // Send audio back to web client
-          sendToClient({
-            type: 'audio',
-            audio: message.delta
-          });
+          sendToClient({ type: 'audio', audio: message.delta });
+          eventBus.emitAudio(sessionId, message.delta);
         }
         break;
 
@@ -237,6 +278,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
             chatwootLogger.logAssistant(message.transcript);
           }
           sendToClient({ type: 'transcript', role: 'assistant', text: message.transcript });
+          eventBus.emitTranscript(sessionId, { role: 'assistant', content: message.transcript });
         }
         break;
 
@@ -273,12 +315,14 @@ export function handleWebBrowserWebSocket(connection, logger) {
                     chatwootLogger.logAssistant(content.text);
                   }
                   sendToClient({ type: 'transcript', role: 'assistant', text: content.text });
+                  eventBus.emitTranscript(sessionId, { role: 'assistant', content: content.text });
                 } else if (content.type === 'audio' && content.transcript) {
                   logger.info(`Assistant (Web): ${content.transcript}`);
                   if (chatwootLogger) {
                     chatwootLogger.logAssistant(content.transcript);
                   }
                   sendToClient({ type: 'transcript', role: 'assistant', text: content.transcript });
+                  eventBus.emitTranscript(sessionId, { role: 'assistant', content: content.transcript });
                 }
               });
             }
@@ -295,6 +339,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
             chatwootLogger.logUser(message.transcript);
           }
           sendToClient({ type: 'transcript', role: 'user', text: message.transcript });
+          eventBus.emitTranscript(sessionId, { role: 'user', content: message.transcript });
         }
         break;
 
@@ -320,7 +365,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
   // Send initial greeting
   const sendInitialGreeting = () => {
-    openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+    triggerResponse();
     logger.info('Initial greeting triggered (Web Client)');
   };
 
@@ -353,7 +398,8 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
       switch (message.type) {
         case 'audio':
-          // Forward audio to OpenAI
+          // Forward audio to supervisor (listen live) + OpenAI
+          eventBus.emitAudio(sessionId, message.audio);
           if (isOpenAiReady) {
             sendAudioToOpenAI(message.audio);
           } else {
@@ -367,6 +413,10 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
         case 'end_session':
           logger.info('Web client requested session end');
+          eventBus.emitStatusChange(sessionId, 'ended');
+          getConversationByExternalId(sessionId).then(conv => {
+            if (conv) updateConversation(conv.id, { status: 'ended' });
+          }).catch(() => {});
           if (openAiWs?.readyState === WebSocket.OPEN) {
             openAiWs.close();
           }
@@ -383,6 +433,14 @@ export function handleWebBrowserWebSocket(connection, logger) {
   // Handle WebSocket close
   connection.socket.on('close', async () => {
     logger.info('Web client WebSocket closed');
+    eventBus.emitStatusChange(sessionId, 'ended');
+    unregisterSession(sessionId);
+    try {
+      const conv = await getConversationByExternalId(sessionId);
+      if (conv) {
+        await updateConversation(conv.id, { status: 'ended' });
+      }
+    } catch (_) {}
     if (chatwootLogger) {
       await chatwootLogger.close();
     }

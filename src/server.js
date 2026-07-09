@@ -2,14 +2,22 @@ import Fastify from 'fastify';
 import fastifyWs from '@fastify/websocket';
 import fastifyFormBody from '@fastify/formbody';
 import fastifyStatic from '@fastify/static';
+import fastifyCors from '@fastify/cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Server as SocketIOServer } from 'socket.io';
 import { handleTwilioWebSocket, injectLocation } from './handlers/twilioHandler.js';
 import { handleWebBrowserWebSocket } from './handlers/webHandler.js';
 import { generateTwiML } from './utils/twiml.js';
 import { N8N_BASE_URL } from './config/tools.js';
 import { findNearestStation, parseLocation } from './services/openChargeMapService.js';
+import { runMigrations } from './config/database.js';
+import { registerSupervisorHandlers } from './handlers/supervisorHandler.js';
+import authRoutes from './routes/auth.js';
+import conversationRoutes from './routes/conversations.js';
+import supervisorRoutes from './routes/supervisor.js';
+import analyticsRoutes from './routes/analytics.js';
 import axios from 'axios';
 
 dotenv.config();
@@ -23,10 +31,14 @@ const fastify = Fastify({
 });
 
 // Register plugins
+await fastify.register(fastifyCors, {
+  origin: true,
+  credentials: true
+});
 await fastify.register(fastifyFormBody);
 await fastify.register(fastifyWs);
 
-// Serve static files (web client)
+// Serve static files (web client + supervisor frontend build)
 await fastify.register(fastifyStatic, {
   root: path.join(__dirname, '..', 'public'),
   prefix: '/'
@@ -36,7 +48,7 @@ await fastify.register(fastifyStatic, {
 fastify.get('/api/health', async (request, reply) => {
   return { 
     status: 'ok', 
-    service: 'GPT Realtime Voice Agent',
+    service: 'GPT Realtime Voice Agent + Supervisor',
     timestamp: new Date().toISOString()
   };
 });
@@ -52,40 +64,30 @@ fastify.all('/incoming-call', async (request, reply) => {
   const protocol = request.headers['x-forwarded-proto'] || 'https';
   const wsUrl = `wss://${host}/media-stream`;
   
-  // Log caller's phone number
   const callerNumber = request.body.From;
   const twilioNumber = request.body.To;
   const callSid = request.body.CallSid;
   
   console.log(`📞 Call from: ${callerNumber}`);
-  console.log('Full request body:', JSON.stringify(request.body, null, 2));
-  fastify.log.info({ 
-    from: callerNumber, 
-    to: twilioNumber, 
-    callSid: callSid 
-  }, 'Incoming call');
-  
+  fastify.log.info({ from: callerNumber, to: twilioNumber, callSid }, 'Incoming call');
   fastify.log.info(`Incoming call - WebSocket URL: ${wsUrl}`);
   
   const twiml = generateTwiML(wsUrl, callerNumber);
-  console.log('Generated TwiML:', twiml);
-  
   reply.type('text/xml');
   return twiml;
 });
 
-// Stream ended endpoint - called by Twilio when the media stream ends
+// Stream ended endpoint
 fastify.all('/stream-ended', async (request, reply) => {
   fastify.log.info('Stream ended callback received');
   reply.type('text/xml');
   return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
 });
 
-// SMS reply webhook - receives caller's SMS reply, looks up nearest station
+// SMS reply webhook
 fastify.all('/sms-reply', async (request, reply) => {
   const { From, Body } = request.body;
   const callerNumber = From;
-
   fastify.log.info(`SMS reply from ${callerNumber}: "${Body}"`);
 
   const parsed = parseLocation(Body);
@@ -104,53 +106,45 @@ fastify.all('/sms-reply', async (request, reply) => {
       fastify.log.info(`Found nearest station: ${station} at ${address} (${distance}km)`);
     }
   } else {
-    // Text-only location — inject raw text for AI to interpret
     coordinates = Body;
     station = 'the location';
     address = Body;
     distance = 'unknown';
   }
 
-  // Inject into the active conversation
-  const injectResult = injectLocation(callerNumber, {
-    station,
-    address,
-    distance,
-    coordinates
-  });
-
+  const injectResult = injectLocation(callerNumber, { station, address, distance, coordinates });
   if (!injectResult.success) {
     fastify.log.warn(`No active session for ${callerNumber} — SMS location not injected`);
-    // TODO: could queue for next call if needed
   }
 
   reply.type('text/xml');
   return '<Response></Response>';
 });
 
-// Callback from n8n when charging station location is found
+// Callback from n8n
 fastify.post('/n8n-location-callback', async (request, reply) => {
   const result = injectLocation(request.body.callerNumber, request.body);
   return result;
 });
 
-// Forward call endpoint - called by Twilio REST API redirect
+// Forward call endpoint
 fastify.all('/forward-call', async (request, reply) => {
   const forwardNumber = process.env.FORWARD_TO_NUMBER || '+21625522862';
   const twilioNumber = process.env.TWILIO_PHONE_NUMBER || request.body?.To || request.body?.Called;
-  
   fastify.log.info(`Forward call endpoint hit - dialing ${forwardNumber}`);
-  fastify.log.info(`Request body: ${JSON.stringify(request.body)}`);
-  
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial callerId="${twilioNumber}" timeout="60">${forwardNumber}</Dial>
 </Response>`;
-
-  fastify.log.info(`Returning TwiML: ${twiml}`);
   reply.type('text/xml');
   return twiml;
 });
+
+// Register API routes
+await fastify.register(authRoutes);
+await fastify.register(conversationRoutes);
+await fastify.register(supervisorRoutes);
+await fastify.register(analyticsRoutes);
 
 // WebSocket endpoint for Twilio Media Streams
 fastify.register(async function (fastify) {
@@ -171,14 +165,34 @@ fastify.register(async function (fastify) {
 // Start server
 const start = async () => {
   try {
-    const port = process.env.PORT || 8080;
+    // Run DB migrations
+    try {
+      await runMigrations();
+    } catch (dbErr) {
+      console.error('Database migration failed:', dbErr.message);
+      console.warn('Supervisor features will be unavailable until DB is configured');
+    }
+
+    const port = process.env.PORT || 3000;
     const host = process.env.HOST || '0.0.0.0';
     
     await fastify.listen({ port, host });
+
+    // Set up Socket.IO after Fastify is listening
+    // Note: polling-only to avoid conflict with @fastify/websocket
+    const io = new SocketIOServer(fastify.server, {
+      cors: {
+        origin: true,
+        credentials: true
+      },
+      path: '/socket.io',
+      transports: ['polling']
+    });
+    registerSupervisorHandlers(io);
     
     console.log(`
 ╔══════════════════════════════════════════════════════════════╗
-║           GPT Realtime Voice Agent Started                   ║
+║     GPT Realtime Voice Agent + Supervisor Started            ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Server running on: http://${host}:${port}                      ║
 ║                                                              ║
@@ -189,6 +203,10 @@ const start = async () => {
 ║  🌐 Web Browser Testing:                                     ║
 ║     Open: http://localhost:${port}                              ║
 ║     WebSocket: wss://your-domain/web-stream                  ║
+║                                                              ║
+║  🖥  Supervisor Dashboard:                                    ║
+║     URL: http://localhost:${port}/supervisor/                   ║
+║     Socket.IO: http://localhost:${port}/socket.io               ║
 ╚══════════════════════════════════════════════════════════════╝
     `);
   } catch (err) {
