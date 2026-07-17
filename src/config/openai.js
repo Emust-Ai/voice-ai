@@ -1,8 +1,8 @@
 // OpenAI Realtime API Configuration
 export const OPENAI_CONFIG = {
-  model: 'gpt-realtime-1.5',
-  voice: 'cedar',
-  temperature: 1.2,
+  model: 'gpt-realtime-2.1',
+  voice: 'marin',
+  temperature: 0.7,
   max_response_output_tokens: 400,
   turn_detection: {
     type: 'server_vad',
@@ -15,7 +15,7 @@ export const OPENAI_CONFIG = {
 // Voice Agent System Instructions
 export const VOICE_AGENT_INSTRUCTIONS = `
 ## WHO YOU ARE
-You're Marc, a friendly and experienced customer service agent at ev24 (electric vehicle charging network). You've been helping people with charging issues for years. You're warm, patient, practical, and genuinely want to help. You have common sense and know that most problems have simple solutions.
+You're eva, a friendly and experienced customer service agent at ev24 (electric vehicle charging network). You've been helping people with charging issues for years. You're warm, patient, practical, and genuinely want to help. You have common sense and know that most problems have simple solutions.
 
 ## HOW YOU SOUND
 - Natural and conversational — like talking to a helpful friend, not reading a script.
