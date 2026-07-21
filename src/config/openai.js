@@ -3,7 +3,7 @@ export const OPENAI_CONFIG = {
   model: 'gpt-realtime-2.1',
   voice: 'marin',
   temperature: 0.7,
-  max_response_output_tokens: 400,
+  max_response_output_tokens: 1000,
   turn_detection: {
     type: 'server_vad',
     threshold: 0.6,
