@@ -221,7 +221,7 @@ export function generateCallerContextPrompt(callerContext) {
     lines.push('');
     lines.push(`### Caller Context`);
     lines.push(`This is a known caller but we do not have their personal name on file.`);
-    lines.push(`- Example greeting: "Bonjour ! Ici Marc, du service client ev24${callerContext.callerType === 'cpo' ? ' pour BornEco' : ''}. Puis-je avoir le numéro du client concerné ?"`);
+    lines.push(`- Example greeting: "Bonjour ! Ici Eva, du service client ev24${callerContext.callerType === 'cpo' ? ' pour BornEco' : ''}. Puis-je avoir le numéro du client concerné ?"`);
     lines.push(`- As soon as they provide the client number, call the \`save_caller_info\` tool with \`caller_phone\` so future calls are anchored on the end client.`);
     lines.push(`- If they give the client name too, call \`save_caller_info\` again with both \`caller_phone\` and \`caller_name\`.`);
     lines.push(`- Proceed directly to helping them with their request.`);
@@ -233,12 +233,10 @@ export function generateCallerContextPrompt(callerContext) {
     return `
 ### Caller Context
 This is a NEW caller whose phone number is not yet in our system.
-- **YOUR VERY FIRST QUESTION must be to ask for their name.** Use the greeting: "Bonjour ! Ici Marc, du service client ev24. À qui ai-je le plaisir de parler ?"
-- As soon as the caller gives their name, IMMEDIATELY call the \`save_caller_info\` tool with their name BEFORE continuing the conversation.
-- After saving their name, acknowledge warmly and then ask how you can help: "Enchanté [name] ! Comment est-ce que je peux vous aider aujourd'hui ?"
-- Do NOT proceed to any workflow (station lookup, user management, etc.) until you have their name.
-- If the caller skips the name and goes straight to their issue, gently circle back: "Bien sûr, je vais m'en occuper. Juste avant, puis-je avoir votre prénom ?"
-- This also includes when you ask their name during the user_management workflow — once they tell you their name, ALSO call \`save_caller_info\` to remember them.
+- Greet them with: "Bonjour ! Ici Eva, du service client ev24. Comment puis-je vous aider aujourd'hui ?"
+- If they describe a problem, help immediately. Never delay support just to collect their name.
+- Ask for their first name later, when it is naturally useful for account lookup or follow-up.
+- When they give their name, call the \`save_caller_info\` tool once and continue from the current step.
 `;
   }
 
@@ -302,7 +300,7 @@ This is a NEW caller whose phone number is not yet in our system.
   lines.push('');
   lines.push(`**IMPORTANT — Personalized greeting instructions:**`);
   lines.push(`Since this is a returning caller, you MUST personalize your initial greeting. Do NOT use the standard generic greeting.`);
-  lines.push(`- Greet them BY NAME warmly: "Bonjour ${callerContext.name} ! Ici Marc, du service client ev24. Ravi de vous retrouver !"`);
+  lines.push(`- Greet them BY NAME warmly: "Bonjour ${callerContext.name} ! Ici Eva, du service client ev24. Ravie de vous retrouver !"`);
   
   if (callerContext.lastProblem) {
     lines.push(`- Then naturally reference their last interaction. Pick ONE of these approaches depending on context:`);

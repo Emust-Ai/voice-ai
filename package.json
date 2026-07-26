@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "echo \"No tests specified\" && exit 0"
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { OPENAI_CONFIG, VOICE_AGENT_INSTRUCTIONS } from '../config/openai.js';
+import { OPENAI_CONFIG, VOICE_AGENT_INSTRUCTIONS, createTranscriptionConfig } from '../config/openai.js';
 import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
 import ChatwootLogger from '../services/chatwootLogger.js';
@@ -19,8 +19,11 @@ export function handleWebBrowserWebSocket(connection, logger) {
   let isOpenAiReady = false;
   let audioQueue = [];
   let processedToolCalls = new Set(); // Track processed tool calls to prevent duplicates
+  let processedUserItems = new Set();
+  let loggedAssistantItems = new Set();
   let chatwootLogger = new ChatwootLogger(sessionId);
   let isResponseActive = false; // Track if OpenAI is currently generating a response
+  const webInstructions = `${VOICE_AGENT_INSTRUCTIONS}\n\n## WEB CHANNEL OVERRIDE\nThe QR-code-by-SMS path is unavailable in browser sessions because there is no caller phone number. Never promise or attempt a QR SMS in this channel; offer app/RFID guidance or human assistance instead.`;
 
   logger.info(`Web browser client connected - Session: ${sessionId}`);
 
@@ -71,26 +74,32 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
   // Initialize OpenAI session with PCM16 audio format (for web browsers)
   const initializeSession = () => {
+    const transcriptionConfig = createTranscriptionConfig();
+    const hasExplicitTranscriptionDeployment = Boolean(
+      process.env.AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT
+      || process.env.AZURE_OPENAI_TRANSCRIPTION_MODEL
+    );
+    const logTranscriptionDeployment = hasExplicitTranscriptionDeployment ? logger.info.bind(logger) : logger.warn.bind(logger);
+    logTranscriptionDeployment(
+      `Using Azure transcription deployment: ${transcriptionConfig.model}${hasExplicitTranscriptionDeployment ? '' : ' (default; configure AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT if your Azure deployment has another name)'}`
+    );
+
     const sessionConfig = {
       type: 'session.update',
       session: {
         modalities: ['text', 'audio'],
-        instructions: VOICE_AGENT_INSTRUCTIONS,
+        instructions: webInstructions,
         voice: OPENAI_CONFIG.voice,
         input_audio_format: 'pcm16',
         output_audio_format: 'pcm16',
-        input_audio_transcription: {
-          model: 'whisper-1',
-          language: 'fr',
-          prompt: 'Service client ev24. Vocabulaire: borne, station, connecteur, RFID, Wattzhub, BornEco, recharge, facture. Priorité: bien transcrire le prénom/nom du client.'
-        },
+        input_audio_transcription: transcriptionConfig,
         turn_detection: {
           ...OPENAI_CONFIG.turn_detection,
           create_response: true,
           interrupt_response: true
         },
         max_response_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 'inf',
-        tools: TOOLS,
+        tools: TOOLS.filter(tool => tool.name !== 'generate_qr_code'),
         tool_choice: 'auto'
       }
     };
@@ -109,6 +118,19 @@ export function handleWebBrowserWebSocket(connection, logger) {
   const createVoiceResponseEvent = () => ({
     type: 'response.create'
   });
+
+  const logAssistantTranscript = (text, itemId = null) => {
+    if (!text) return false;
+    const normalizedText = text.trim();
+    if (!normalizedText) return false;
+    if (itemId && loggedAssistantItems.has(itemId)) return false;
+
+    if (itemId) loggedAssistantItems.add(itemId);
+    logger.info(`Assistant (Web): ${normalizedText}`);
+    if (chatwootLogger) chatwootLogger.logAssistant(normalizedText);
+    sendToClient({ type: 'transcript', role: 'assistant', text: normalizedText });
+    return true;
+  };
 
   // Handle tool calls from OpenAI
   const handleToolCall = async (toolCall) => {
@@ -171,13 +193,12 @@ export function handleWebBrowserWebSocket(connection, logger) {
     switch (message.type) {
       case 'session.created':
         logger.info('Azure OpenAI session created (Web Client)');
-        isOpenAiReady = true;
-        processAudioQueue();
         break;
 
       case 'session.updated':
         logger.info('Azure OpenAI session updated (Web Client)');
         isOpenAiReady = true;
+        processAudioQueue();
         sendToClient({ type: 'status', status: 'ready' });
         sendInitialGreeting();
         break;
@@ -231,13 +252,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
         break;
 
       case 'response.output_audio_transcript.done':
-        if (message.transcript) {
-          logger.info(`Assistant (Web): ${message.transcript}`);
-          if (chatwootLogger) {
-            chatwootLogger.logAssistant(message.transcript);
-          }
-          sendToClient({ type: 'transcript', role: 'assistant', text: message.transcript });
-        }
+        logAssistantTranscript(message.transcript, message.item_id);
         break;
 
       case 'response.done':
@@ -268,17 +283,9 @@ export function handleWebBrowserWebSocket(connection, logger) {
                 console.log('DEBUG: content.type:', content.type);
                 // Handle both text and audio (with transcript) content
                 if (content.type === 'text') {
-                  logger.info(`Assistant (Web): ${content.text}`);
-                  if (chatwootLogger) {
-                    chatwootLogger.logAssistant(content.text);
-                  }
-                  sendToClient({ type: 'transcript', role: 'assistant', text: content.text });
+                  logAssistantTranscript(content.text, output.id);
                 } else if (content.type === 'audio' && content.transcript) {
-                  logger.info(`Assistant (Web): ${content.transcript}`);
-                  if (chatwootLogger) {
-                    chatwootLogger.logAssistant(content.transcript);
-                  }
-                  sendToClient({ type: 'transcript', role: 'assistant', text: content.transcript });
+                  logAssistantTranscript(content.transcript, output.id);
                 }
               });
             }
@@ -290,12 +297,23 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
       case 'conversation.item.input_audio_transcription.completed':
         if (message.transcript) {
+          if (message.item_id && processedUserItems.has(message.item_id)) break;
+          if (message.item_id) processedUserItems.add(message.item_id);
           logger.info(`User (Web): ${message.transcript}`);
           if (chatwootLogger) {
             chatwootLogger.logUser(message.transcript);
           }
           sendToClient({ type: 'transcript', role: 'user', text: message.transcript });
         }
+        break;
+
+      case 'conversation.item.input_audio_transcription.failed':
+        logger.warn({
+          itemId: message.item_id,
+          code: message.error?.code,
+          error: message.error?.message
+        }, 'Web caller transcription failed');
+        sendToClient({ type: 'transcription_failed' });
         break;
 
       case 'response.function_call_arguments.done':

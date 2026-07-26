@@ -352,6 +352,30 @@ export const TOOLS = [
       },
       required: []
     }
+  },
+  {
+    type: 'function',
+    name: 'generate_qr_code',
+    description: 'Request a charging QR-code URL from n8n; the voice server then sends that returned URL to the caller by SMS. Use only when the caller cannot use the mobile app and has no working RFID card. The tenant, exact charging station name, and connector ID must already be known and confirmed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tenant: {
+          type: 'string',
+          enum: ['borneco', '7hub', 'autoplug', 'ght', 'nexity', 'mycompany'],
+          description: 'The lowercase tenant key obtained from tenant_find or caller context; it must match one of the n8n workflow branches'
+        },
+        charging_station_name: {
+          type: 'string',
+          description: 'The exact charging station name required by the CPO API'
+        },
+        connector_id: {
+          type: 'string',
+          description: 'The exact connector number selected by the caller'
+        }
+      },
+      required: ['tenant', 'charging_station_name', 'connector_id']
+    }
   }
 ];
 
@@ -370,5 +394,6 @@ export const TOOL_ENDPOINTS = {
   charge_station_tariff: '/station-tariff',
   priority: '/priority-escalation',
   location: '/location',
-  request_location_tool: '/request-location'
+  request_location_tool: '/request-location',
+  generate_qr_code: '/qr-code'
 };

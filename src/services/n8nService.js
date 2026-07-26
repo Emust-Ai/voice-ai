@@ -12,12 +12,16 @@ import { responseCache } from './responseCache.js';
  * @returns {Promise<object>} - The result from n8n
  */
 export async function executeN8nTool(toolName, args, context = {}) {
+  const normalizedArgs = toolName === 'generate_qr_code'
+    ? { ...args, tenant: String(args.tenant || '').trim().toLowerCase() }
+    : args;
+
   // Check cache first for supported tools (Task 4)
   const cacheableTools = ['tenant_find', 'station_verification', 'charge_station_tariff'];
   if (cacheableTools.includes(toolName)) {
-    const cached = responseCache.get(toolName, args);
+    const cached = responseCache.get(toolName, normalizedArgs);
     if (cached) {
-      console.log(`Cache hit for ${toolName}: ${responseCache.buildKey(toolName, args)}`);
+      console.log(`Cache hit for ${toolName}: ${responseCache.buildKey(toolName, normalizedArgs)}`);
       return cached;
     }
   }
@@ -43,7 +47,7 @@ export async function executeN8nTool(toolName, args, context = {}) {
         })
       },
       body: JSON.stringify({
-        ...args,
+        ...normalizedArgs,
         _context: {
           callSid: context.callSid,
           streamSid: context.streamSid,
@@ -76,7 +80,7 @@ export async function executeN8nTool(toolName, args, context = {}) {
 
     // Cache successful responses for supported tools (Task 4)
     if (cacheableTools.includes(toolName)) {
-      responseCache.set(toolName, args, finalResult);
+      responseCache.set(toolName, normalizedArgs, finalResult);
     }
 
     return finalResult;

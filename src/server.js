@@ -104,11 +104,12 @@ fastify.all('/sms-reply', async (request, reply) => {
       fastify.log.info(`Found nearest station: ${station} at ${address} (${distance}km)`);
     }
   } else {
-    // Text-only location — inject raw text for AI to interpret
+    // Text-only location: preserve it as caller-provided data. Do not claim a
+    // nearest station was found until a real lookup has happened.
     coordinates = Body;
-    station = 'the location';
+    station = null;
     address = Body;
-    distance = 'unknown';
+    distance = null;
   }
 
   // Inject into the active conversation

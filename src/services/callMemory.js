@@ -104,19 +104,21 @@ export class CallMemory {
       case 'remote_control':
         if (args.action) this.gatheredInfo.last_action = args.action;
         break;
+      case 'generate_qr_code':
+        if (args.charging_station_name) this.gatheredInfo.station = args.charging_station_name;
+        if (args.connector_id) this.gatheredInfo.connector_id = args.connector_id;
+        this.gatheredInfo.qr_code_sent = true;
+        break;
     }
   }
 
   _detectLanguage(text) {
-    if (/[a-zA-Z]/.test(text)) {
-      const arabicPattern = /[\u0600-\u06FF]/;
-      if (arabicPattern.test(text)) {
-        this.language = 'ar';
-      } else if (/bonjour|salut|merci|d'accord|oui|non|pas|je|tu|il|elle|nous|vous|ils|elles|le|la|les|un|une|des|du|au|aux|est|sont|avez|avez|être|avoir|faire|dire|aller|voir|savoir|pouvoir|vouloir|devoir|falloir/i.test(text)) {
-        this.language = 'fr';
-      } else {
-        this.language = 'en';
-      }
+    if (/[\u0600-\u06FF]/.test(text)) {
+      this.language = 'ar';
+    } else if (/bonjour|salut|merci|d'accord|oui|non|pas|je|tu|il|elle|nous|vous|ils|elles|le|la|les|un|une|des|du|au|aux|est|sont|avez|être|avoir|faire|dire|aller|voir|savoir|pouvoir|vouloir|devoir|falloir/i.test(text)) {
+      this.language = 'fr';
+    } else if (/[a-zA-Z]/.test(text)) {
+      this.language = 'en';
     }
   }
 
