@@ -4,6 +4,12 @@ import { TOOLS } from '../config/tools.js';
 import { executeN8nTool } from '../services/n8nService.js';
 import ChatwootLogger from '../services/chatwootLogger.js';
 import { billVoiceUsage } from '../services/billingService.js';
+import {
+  ConversationLanguage,
+  createLanguageResponseEvent,
+  isLikelyTranscriptHallucination,
+  needsQrFallback
+} from '../services/conversationQuality.js';
 
 // Build Azure OpenAI Realtime WebSocket URL
 const getAzureOpenAIRealtimeUrl = () => {
@@ -23,6 +29,9 @@ export function handleWebBrowserWebSocket(connection, logger) {
   let loggedAssistantItems = new Set();
   let chatwootLogger = new ChatwootLogger(sessionId);
   let isResponseActive = false; // Track if OpenAI is currently generating a response
+  let azureResponseActive = false;
+  let queuedResponseInstruction = null;
+  const conversationLanguage = new ConversationLanguage('fr');
   const webInstructions = `${VOICE_AGENT_INSTRUCTIONS}\n\n## WEB CHANNEL OVERRIDE\nThe QR-code-by-SMS path is unavailable in browser sessions because there is no caller phone number. Never promise or attempt a QR SMS in this channel; offer app/RFID guidance or human assistance instead.`;
 
   logger.info(`Web browser client connected - Session: ${sessionId}`);
@@ -95,7 +104,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
         input_audio_transcription: transcriptionConfig,
         turn_detection: {
           ...OPENAI_CONFIG.turn_detection,
-          create_response: true,
+          create_response: false,
           interrupt_response: true
         },
         max_response_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 'inf',
@@ -115,9 +124,26 @@ export function handleWebBrowserWebSocket(connection, logger) {
     }
   };
 
-  const createVoiceResponseEvent = () => ({
-    type: 'response.create'
-  });
+  const createVoiceResponseEvent = (extraInstruction = '') =>
+    createLanguageResponseEvent(conversationLanguage.current, extraInstruction);
+
+  const requestVoiceResponse = (extraInstruction = '') => {
+    if (openAiWs?.readyState !== WebSocket.OPEN) return false;
+    if (azureResponseActive) {
+      queuedResponseInstruction = extraInstruction || queuedResponseInstruction || '';
+      return false;
+    }
+    azureResponseActive = true;
+    openAiWs.send(JSON.stringify(createVoiceResponseEvent(extraInstruction)));
+    return true;
+  };
+
+  const drainQueuedResponse = () => {
+    if (queuedResponseInstruction === null || azureResponseActive) return;
+    const instruction = queuedResponseInstruction;
+    queuedResponseInstruction = null;
+    requestVoiceResponse(instruction);
+  };
 
   const logAssistantTranscript = (text, itemId = null) => {
     if (!text) return false;
@@ -165,7 +191,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(toolResponse));
-      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+      requestVoiceResponse();
       
     } catch (error) {
       logger.error(`Error handling tool call ${name}:`, error);
@@ -184,7 +210,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(errorResponse));
-      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+      requestVoiceResponse();
     }
   };
 
@@ -201,6 +227,10 @@ export function handleWebBrowserWebSocket(connection, logger) {
         processAudioQueue();
         sendToClient({ type: 'status', status: 'ready' });
         sendInitialGreeting();
+        break;
+
+      case 'response.created':
+        azureResponseActive = true;
         break;
 
       case 'response.audio.delta':
@@ -226,9 +256,8 @@ export function handleWebBrowserWebSocket(connection, logger) {
         logger.info('User started speaking (Web Client)');
         sendToClient({ type: 'speech_started' });
         // Cancel any ongoing response when user interrupts (only if there's an active response)
-        if (isResponseActive && openAiWs?.readyState === WebSocket.OPEN) {
+        if (azureResponseActive && isResponseActive && openAiWs?.readyState === WebSocket.OPEN) {
           openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
-          isResponseActive = false;
           logger.info('Cancelled active OpenAI response due to user interruption');
         }
         break;
@@ -256,6 +285,7 @@ export function handleWebBrowserWebSocket(connection, logger) {
         break;
 
       case 'response.done':
+        azureResponseActive = false;
         console.log('DEBUG: response.done event received');
         console.log('DEBUG: message.response?.output:', JSON.stringify(message.response?.output, null, 2));
 
@@ -293,17 +323,34 @@ export function handleWebBrowserWebSocket(connection, logger) {
           });
         }
         sendToClient({ type: 'response_done' });
+        drainQueuedResponse();
         break;
 
       case 'conversation.item.input_audio_transcription.completed':
         if (message.transcript) {
           if (message.item_id && processedUserItems.has(message.item_id)) break;
           if (message.item_id) processedUserItems.add(message.item_id);
+          if (isLikelyTranscriptHallucination(message.transcript)) {
+            logger.warn({ itemId: message.item_id, transcript: message.transcript }, 'Rejected likely web transcription hallucination');
+            if (message.item_id && openAiWs?.readyState === WebSocket.OPEN) {
+              openAiWs.send(JSON.stringify({
+                type: 'conversation.item.delete',
+                item_id: message.item_id
+              }));
+            }
+            break;
+          }
+          conversationLanguage.observe(message.transcript);
           logger.info(`User (Web): ${message.transcript}`);
           if (chatwootLogger) {
             chatwootLogger.logUser(message.transcript);
           }
           sendToClient({ type: 'transcript', role: 'user', text: message.transcript });
+          if (needsQrFallback(message.transcript)) {
+            requestVoiceResponse('Le client n’a ni application ni RFID. Dans le navigateur, dites clairement que l’envoi du QR par SMS nécessite un appel téléphonique et ne proposez aucune option inventée.');
+            break;
+          }
+          requestVoiceResponse();
         }
         break;
 
@@ -314,6 +361,13 @@ export function handleWebBrowserWebSocket(connection, logger) {
           error: message.error?.message
         }, 'Web caller transcription failed');
         sendToClient({ type: 'transcription_failed' });
+        if (message.item_id && openAiWs?.readyState === WebSocket.OPEN) {
+          openAiWs.send(JSON.stringify({
+            type: 'conversation.item.delete',
+            item_id: message.item_id
+          }));
+        }
+        requestVoiceResponse('Dites uniquement : « Je vous entends mal, pouvez-vous répéter ? »');
         break;
 
       case 'response.function_call_arguments.done':
@@ -327,6 +381,10 @@ export function handleWebBrowserWebSocket(connection, logger) {
         break;
 
       case 'error':
+        if (/cancellation failed: no active response/i.test(message.error?.message || '')) {
+          azureResponseActive = false;
+          break;
+        }
         logger.error('Azure OpenAI error:', message.error);
         sendToClient({ type: 'error', message: message.error?.message || 'Unknown error' });
         break;
@@ -338,7 +396,9 @@ export function handleWebBrowserWebSocket(connection, logger) {
 
   // Send initial greeting
   const sendInitialGreeting = () => {
-    openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+    requestVoiceResponse(
+      'Saluez brièvement en français, présentez-vous comme Eva du service client ev24, puis demandez comment aider. Ne demandez ni nom ni numéro client.'
+    );
     logger.info('Initial greeting triggered (Web Client)');
   };
 

@@ -12,6 +12,14 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
+export function buildChatwootTranscriptMessage(message) {
+  return {
+    content: `[VOICE ${message.role.toUpperCase()}]: ${message.text}`,
+    message_type: 'outgoing',
+    private: true
+  };
+}
+
 class ChatwootLogger {
   constructor(sessionId, callSid = null) {
     this.sessionId = sessionId;
@@ -255,9 +263,11 @@ class ChatwootLogger {
         source_id: String(contactIdentifier),
         inbox_id: parseInt(this.chatwootInboxId),
         contact_id: String(contactId),
-        status: 'open',
+        status: this.humanEscalationRequested ? 'open' : 'resolved',
         priority: this.humanEscalationRequested ? 'urgent' : null,
         additional_attributes: {
+          source: 'voice_transcript_archive',
+          call_sid: this.callSid || null,
           tenant: this.tenant || null,
           known_caller_profile: this.knownCallerProfile || null,
           reference_phone_number: this.referencePhoneNumber || null
@@ -288,11 +298,7 @@ class ChatwootLogger {
         
         await axios.post(
           messageUrl,
-          {
-            content: `[${msg.role.toUpperCase()}]: ${msg.text}`,
-            message_type: msg.role === 'user' ? 'incoming' : 'outgoing',
-            private: false
-          },
+          buildChatwootTranscriptMessage(msg),
           {
             headers: {
               'api_access_token': this.chatwootApiToken,

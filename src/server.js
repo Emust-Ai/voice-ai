@@ -37,6 +37,10 @@ fastify.get('/api/health', async (request, reply) => {
   return { 
     status: 'ok', 
     service: 'GPT Realtime Voice Agent',
+    revision: process.env.GITHUB_SHA || process.env.BUILD_SHA || process.env.WEBSITE_DEPLOYMENT_ID || 'local',
+    realtimeDeployment: process.env.AZURE_OPENAI_DEPLOYMENT || 'default',
+    transcriptionDeployment: process.env.AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT || 'gpt-4o-transcribe',
+    promptVersion: '2026-07-28-quality-v2',
     timestamp: new Date().toISOString()
   };
 });

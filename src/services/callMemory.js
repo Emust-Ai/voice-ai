@@ -83,6 +83,16 @@ export class CallMemory {
     if (value) this.gatheredInfo[key] = value;
   }
 
+  updateStation(station) {
+    if (!station || station === this.gatheredInfo.station) return;
+    delete this.gatheredInfo.station_id;
+    delete this.gatheredInfo.station_status;
+    delete this.gatheredInfo.connector_id;
+    delete this.gatheredInfo.last_action;
+    delete this.gatheredInfo.qr_code_sent;
+    this.gatheredInfo.station = station;
+  }
+
   _extractInfoFromTool(name, args, result) {
     switch (name) {
       case 'tenant_find':

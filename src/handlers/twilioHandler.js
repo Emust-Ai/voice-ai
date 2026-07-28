@@ -7,10 +7,19 @@ import { billVoiceUsage } from '../services/billingService.js';
 import { lookupCaller, saveCallerInfo, saveCallerContext, generateCallerContextPrompt } from '../services/userContextService.js';
 import { generateConversationSummaryForContext } from '../services/conversationSummarizer.js';
 import { setSession, getSession, removeSession } from '../utils/callState.js';
-import { classifyIntent } from '../services/intentClassifier.js';
 import { CallMemory } from '../services/callMemory.js';
 import { executeN8nToolsParallel } from '../services/n8nService.js';
 import { buildQrRequestKey, sendQrCodeSms } from '../services/qrCodeService.js';
+import {
+  ConversationLanguage,
+  createLanguageResponseEvent,
+  extractStationMention,
+  isAffirmativeResponse,
+  isLikelyTranscriptHallucination,
+  needsLocationSms,
+  needsQrFallback,
+  requestsHumanAgent
+} from '../services/conversationQuality.js';
 import twilio from 'twilio';
 
 // Lazily initialize Twilio client
@@ -43,6 +52,8 @@ export function handleTwilioWebSocket(connection, logger) {
   let audioQueue = [];
   let chatwootLogger = null;
   let isResponseActive = false; // Track if OpenAI is currently generating a response
+  let azureResponseActive = false;
+  let queuedResponseInstruction = null;
   let isConversationClosed = false; // Prevent multiple close calls
   let echoCooldownUntil = 0; // Timestamp until which speech_started events are ignored (echo suppression)
   let waitingForPlaybackDrain = false; // Wait for Twilio mark before accepting interruption
@@ -54,19 +65,19 @@ export function handleTwilioWebSocket(connection, logger) {
   let openAiConnectionStarted = false;
   let callerContext = null; // Persistent user context from previous calls
   let activeProfilePhoneNumber = null; // Context anchor (can switch to end-client number for CPO calls)
-  let hasClassifiedIntent = false;
   let latestUserTurn = 0;
+  let stationRevision = 0;
+  let currentStationMention = null;
+  let escalationState = 'none';
   const qrCodeDeliveries = new Map();
+  const conversationLanguage = new ConversationLanguage('fr');
   let callMemory = null; // Short-term session memory (Task 2)
   let toolCallBuffer = []; // Buffer for parallel tool call batching (Task 6)
-  let silenceTimer = null; // Timer for silence-based proactive help (Task 7)
-  let lastUserMessages = []; // Last 3 user transcripts for repetition detection (Task 7)
-  let lastSilenceInjection = 0; // Prevent repeated silence injections
-  const SILENCE_TIMEOUT_MS = 8000; // 8s of silence triggers help offer
-  const SILENCE_INJECTION_COOLDOWN = 30000; // Don't inject again within 30s
   const processedToolCallIds = new Set();
   const processedUserItemIds = new Set();
   const loggedAssistantItemIds = new Set();
+  const interruptedAssistantItemIds = new Set();
+  const pendingAssistantTranscripts = new Map();
 
   const parseMs = (value, fallback) => {
     const parsed = Number.parseInt(value, 10);
@@ -74,20 +85,50 @@ export function handleTwilioWebSocket(connection, logger) {
   };
   const ECHO_COOLDOWN_MS = parseMs(process.env.ECHO_COOLDOWN_MS, 300);
 
-  const createVoiceResponseEvent = () => ({
-    type: 'response.create'
-  });
+  const createVoiceResponseEvent = (extraInstruction = '') =>
+    createLanguageResponseEvent(conversationLanguage.current, extraInstruction);
 
-  const logAssistantTranscript = (text, itemId = null) => {
+  const requestVoiceResponse = (extraInstruction = '') => {
+    if (openAiWs?.readyState !== WebSocket.OPEN) return false;
+    if (azureResponseActive) {
+      queuedResponseInstruction = extraInstruction || queuedResponseInstruction || '';
+      return false;
+    }
+    azureResponseActive = true;
+    openAiWs.send(JSON.stringify(createVoiceResponseEvent(extraInstruction)));
+    return true;
+  };
+
+  const drainQueuedResponse = () => {
+    if (queuedResponseInstruction === null || azureResponseActive) return;
+    const instruction = queuedResponseInstruction;
+    queuedResponseInstruction = null;
+    requestVoiceResponse(instruction);
+  };
+
+  const commitAssistantTranscript = (text, itemId = null) => {
     if (!text) return;
     const normalizedText = text.trim();
     if (!normalizedText) return;
     if (itemId && loggedAssistantItemIds.has(itemId)) return;
+    if (itemId && interruptedAssistantItemIds.has(itemId)) return;
 
     if (itemId) loggedAssistantItemIds.add(itemId);
+    if (/\b(?:collègue|agent humain|conseiller humain|human agent)\b|(?:موظف|وكيل|إنسان|انسان)/iu.test(normalizedText) && escalationState !== 'executed') {
+      escalationState = 'offered';
+    }
     logger.info(`Assistant: ${normalizedText}`);
     if (chatwootLogger) chatwootLogger.logAssistant(normalizedText);
     if (callMemory) callMemory.addAssistantMessage(normalizedText);
+  };
+
+  const logAssistantTranscript = (text, itemId = null) => {
+    if (itemId && interruptedAssistantItemIds.has(itemId)) return;
+    if (itemId && (itemId === currentAssistantItemId || isResponseActive || waitingForPlaybackDrain)) {
+      pendingAssistantTranscripts.set(itemId, text);
+      return;
+    }
+    commitAssistantTranscript(text, itemId);
   };
 
   // Connect to OpenAI Realtime API
@@ -119,7 +160,6 @@ export function handleTwilioWebSocket(connection, logger) {
     openAiWs.on('close', (code, reason) => {
       logger.info(`Azure OpenAI WebSocket closed: ${code} - ${reason.toString()}`);
       isOpenAiReady = false;
-      cancelSilenceTimer();
     });
 
     openAiWs.on('unexpected-response', (request, response) => {
@@ -168,7 +208,7 @@ export function handleTwilioWebSocket(connection, logger) {
         input_audio_transcription: transcriptionConfig,
         turn_detection: {
           ...OPENAI_CONFIG.turn_detection,
-          create_response: true,
+          create_response: false,
           interrupt_response: true
         },
         max_response_output_tokens: OPENAI_CONFIG.max_response_output_tokens || 'inf',
@@ -180,6 +220,47 @@ export function handleTwilioWebSocket(connection, logger) {
     openAiWs.send(JSON.stringify(sessionConfig));
     logger.info('Session configuration sent to Azure OpenAI with tools and transcription enabled');
     // Wait for session.updated event before marking ready (avoid race condition)
+  };
+
+  const registerLocationReplySession = () => {
+    if (!callerNumber) return;
+    setSession(callerNumber, {
+      openAiWs,
+      callSid,
+      streamSid,
+      onLocationInjected: ({ station, address, coordinates }) => {
+        latestUserTurn++;
+        const locationKey = station || address || coordinates;
+        if (locationKey && String(locationKey).toLowerCase() !== currentStationMention?.toLowerCase()) {
+          currentStationMention = String(locationKey);
+          stationRevision++;
+          if (callMemory?.updateStation) callMemory.updateStation(String(locationKey));
+        }
+        requestVoiceResponse('La localisation provient du SMS du client. Répondez sans changer de langue.');
+      }
+    });
+  };
+
+  const sendLocationSms = async () => {
+    const twilioClient = getTwilioClient();
+    const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
+    if (!twilioClient || !callerNumber || !twilioPhone) {
+      return { success: false, error: 'SMS delivery is not configured for this call.' };
+    }
+
+    try {
+      const message = await twilioClient.messages.create({
+        body: 'ev24 - Répondez avec votre adresse ou votre position GPS pour trouver la borne la plus proche.',
+        from: twilioPhone,
+        to: callerNumber
+      });
+      registerLocationReplySession();
+      logger.info(`Location SMS sent to ${callerNumber}`);
+      return { success: true, message: 'Location SMS sent.', messageSid: message.sid };
+    } catch (error) {
+      logger.error(`Failed to send location SMS: ${error.message}`);
+      return { success: false, error: `Location SMS failed: ${error.message}` };
+    }
   };
 
   // Handle tool calls from OpenAI and execute n8n webhooks
@@ -229,43 +310,26 @@ export function handleTwilioWebSocket(connection, logger) {
           }
         };
         openAiWs.send(JSON.stringify(toolResponse));
-        if (continueResponse) openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+        if (continueResponse) requestVoiceResponse();
         return;
       }
       
       // Handle request_location_tool locally — send SMS via Twilio, don't go through n8n
       if (name === 'request_location_tool') {
-        if (callerNumber) {
-          setSession(callerNumber, { openAiWs, callSid, streamSid });
-        }
         if (callMemory) {
           callMemory.addToolCall(name, args, null);
         }
-        // Send SMS asking for location via Twilio
-        try {
-          const twilioClient = getTwilioClient();
-          if (twilioClient && callerNumber) {
-            const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
-            await twilioClient.messages.create({
-              body: 'ev24 — Pour trouver la borne la plus proche, répondez avec votre adresse ou votre position (ex: "45.123, 3.456" ou "10 rue de Paris"). Merci !',
-              from: twilioPhone,
-              to: callerNumber
-            });
-            logger.info(`Location SMS sent to ${callerNumber}`);
-          }
-        } catch (smsError) {
-          logger.error(`Failed to send location SMS: ${smsError.message}`);
-        }
+        const smsResult = await sendLocationSms();
         const toolResponse = {
           type: 'conversation.item.create',
           item: {
             type: 'function_call_output',
             call_id: call_id,
-            output: JSON.stringify({ success: true, message: 'SMS sent to caller asking for their location.' })
+            output: JSON.stringify(smsResult)
           }
         };
         openAiWs.send(JSON.stringify(toolResponse));
-        if (continueResponse) openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+        if (continueResponse) requestVoiceResponse();
         return;
       }
 
@@ -297,7 +361,7 @@ export function handleTwilioWebSocket(connection, logger) {
       openAiWs.send(JSON.stringify(toolResponse));
       
       // Trigger OpenAI to continue the response
-      if (continueResponse) openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+      if (continueResponse) requestVoiceResponse();
       
       // If priority (human escalation) tool was called successfully, log it
       if (name === 'priority' && result.success !== false) {
@@ -326,7 +390,7 @@ export function handleTwilioWebSocket(connection, logger) {
       };
       
       openAiWs.send(JSON.stringify(errorResponse));
-      if (continueResponse) openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+      if (continueResponse) requestVoiceResponse();
     }
   };
 
@@ -345,12 +409,26 @@ export function handleTwilioWebSocket(connection, logger) {
 
     // Process local tools immediately
     for (const tc of localTools) {
-      await handleToolCall(tc, { continueResponse: false });
+      if (tc.userTurn !== latestUserTurn || tc.stationRevision !== stationRevision) {
+        openAiWs.send(JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            type: 'function_call_output',
+            call_id: tc.call_id,
+            output: JSON.stringify({
+              success: false,
+              error: 'This tool call is stale because the caller provided newer information.'
+            })
+          }
+        }));
+      } else {
+        await handleToolCall(tc, { continueResponse: false });
+      }
     }
 
     if (n8nTools.length === 0) {
       if (openAiWs?.readyState === WebSocket.OPEN) {
-        openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+        requestVoiceResponse();
       }
       return;
     }
@@ -359,12 +437,31 @@ export function handleTwilioWebSocket(connection, logger) {
     const validN8nTools = [];
     for (const tc of n8nTools) {
       try {
-        validN8nTools.push({
+        const parsedTool = {
           toolCall: tc,
           name: tc.name,
           args: JSON.parse(tc.arguments),
           callId: tc.call_id
-        });
+        };
+        let blockedReason = null;
+        if (tc.userTurn !== latestUserTurn || tc.stationRevision !== stationRevision) {
+          blockedReason = 'This tool call is stale because the caller provided newer information. Re-evaluate the latest request.';
+        } else if (tc.name === 'priority' && escalationState !== 'consented') {
+          blockedReason = 'Human escalation requires explicit caller consent. Ask once and wait for a clear yes before retrying.';
+        }
+
+        if (blockedReason) {
+          openAiWs.send(JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'function_call_output',
+              call_id: tc.call_id,
+              output: JSON.stringify({ success: false, error: blockedReason })
+            }
+          }));
+        } else {
+          validN8nTools.push(parsedTool);
+        }
       } catch {
         await handleToolCall(tc, { continueResponse: false });
       }
@@ -372,7 +469,7 @@ export function handleTwilioWebSocket(connection, logger) {
 
     if (validN8nTools.length === 0) {
       if (openAiWs?.readyState === WebSocket.OPEN) {
-        openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+        requestVoiceResponse();
       }
       return;
     }
@@ -385,6 +482,14 @@ export function handleTwilioWebSocket(connection, logger) {
     // Feed results to memory and send back to OpenAI
     for (const { toolCall: tc, args } of validN8nTools) {
       let result = results[tc.call_id] || { success: false, error: 'No result' };
+
+      if (tc.userTurn !== latestUserTurn || tc.stationRevision !== stationRevision) {
+        result = {
+          success: false,
+          stale: true,
+          error: 'Ignored stale tool result because the caller provided newer information.'
+        };
+      }
 
       if (tc.name === 'generate_qr_code' && result.success !== false) {
         const deliveryKey = buildQrRequestKey(args);
@@ -432,6 +537,7 @@ export function handleTwilioWebSocket(connection, logger) {
       }
 
       if (tc.name === 'priority' && result.success !== false) {
+        escalationState = 'executed';
         logger.info(`Human callback requested for caller ${callerNumber}. Reason: ${args.reason || 'Not specified'}`);
         if (chatwootLogger) {
           chatwootLogger.markHumanEscalation();
@@ -441,45 +547,7 @@ export function handleTwilioWebSocket(connection, logger) {
 
     // Trigger OpenAI to continue after all results
     if (openAiWs?.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
-    }
-  };
-
-  // Start silence timer for proactive help (Task 7)
-  const startSilenceTimer = () => {
-    cancelSilenceTimer();
-    // Don't start timer if response is active (AI still generating)
-    if (isResponseActive) return;
-    const now = Date.now();
-    if (now - lastSilenceInjection < SILENCE_INJECTION_COOLDOWN) return;
-    silenceTimer = setTimeout(() => {
-      const currentResponseActive = isResponseActive;
-      const now2 = Date.now();
-      if (!currentResponseActive && now2 - lastSilenceInjection >= SILENCE_INJECTION_COOLDOWN) {
-        logger.info('Silence timeout — user hasn\'t spoken, injecting proactive help');
-        lastSilenceInjection = now2;
-        if (openAiWs?.readyState === WebSocket.OPEN) {
-          openAiWs.send(JSON.stringify({
-            type: 'conversation.item.create',
-            item: {
-              type: 'message',
-              role: 'system',
-              content: [{
-                type: 'input_text',
-                text: '[SYSTEM: Caller has been silent for several seconds. If you asked a question and are waiting for a response, offer to help: "Pas de souci, prenez votre temps." Or if you\'ve been troubleshooting, ask if they want a human agent: "Souhaitez-vous que je vous mette en contact avec un collègue ?"]'
-              }]
-            }
-          }));
-          openAiWs.send(JSON.stringify({ type: 'response.create' }));
-        }
-      }
-    }, SILENCE_TIMEOUT_MS);
-  };
-
-  const cancelSilenceTimer = () => {
-    if (silenceTimer) {
-      clearTimeout(silenceTimer);
-      silenceTimer = null;
+      requestVoiceResponse();
     }
   };
 
@@ -503,6 +571,17 @@ export function handleTwilioWebSocket(connection, logger) {
         // naturally interrupts it instead of creating two simultaneous responses.
         sendInitialGreeting();
         processAudioQueue();
+        break;
+
+      case 'response.created':
+        azureResponseActive = true;
+        currentResponseId = message.response?.id || currentResponseId;
+        break;
+
+      case 'response.output_item.added':
+        if (message.item?.type === 'message') {
+          currentAssistantItemId = message.item.id || currentAssistantItemId;
+        }
         break;
 
       case 'response.audio.delta':
@@ -536,10 +615,13 @@ export function handleTwilioWebSocket(connection, logger) {
             mark: { name: pendingPlaybackMark }
           }));
         } else {
+          if (currentAssistantItemId && pendingAssistantTranscripts.has(currentAssistantItemId)) {
+            commitAssistantTranscript(pendingAssistantTranscripts.get(currentAssistantItemId), currentAssistantItemId);
+            pendingAssistantTranscripts.delete(currentAssistantItemId);
+          }
           waitingForPlaybackDrain = false;
           isResponseActive = false;
           echoCooldownUntil = Date.now() + ECHO_COOLDOWN_MS;
-          startSilenceTimer();
         }
         break;
 
@@ -547,7 +629,6 @@ export function handleTwilioWebSocket(connection, logger) {
         {
         const now = Date.now();
         // Cancel silence timer — user is speaking (Task 7)
-        cancelSilenceTimer();
         // Echo suppression: ignore speech detection shortly after AI finishes speaking
         if (now < echoCooldownUntil && !isResponseActive && !waitingForPlaybackDrain) {
           logger.info('Ignoring speech_started during echo cooldown');
@@ -555,6 +636,10 @@ export function handleTwilioWebSocket(connection, logger) {
         }
 
         logger.info('User started speaking - interrupting AI');
+        if (currentAssistantItemId) {
+          interruptedAssistantItemIds.add(currentAssistantItemId);
+          pendingAssistantTranscripts.delete(currentAssistantItemId);
+        }
         if (
           currentAssistantItemId &&
           responseStartMediaTimestamp !== null &&
@@ -577,7 +662,7 @@ export function handleTwilioWebSocket(connection, logger) {
           }));
         }
         // Cancel OpenAI's ongoing response
-        if (isResponseActive && openAiWs?.readyState === WebSocket.OPEN) {
+        if (azureResponseActive && isResponseActive && openAiWs?.readyState === WebSocket.OPEN) {
           openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
         }
         isResponseActive = false;
@@ -594,7 +679,37 @@ export function handleTwilioWebSocket(connection, logger) {
         if (message.transcript) {
           if (message.item_id && processedUserItemIds.has(message.item_id)) break;
           if (message.item_id) processedUserItemIds.add(message.item_id);
-          const userTurn = ++latestUserTurn;
+
+          if (isLikelyTranscriptHallucination(message.transcript)) {
+            logger.warn({ itemId: message.item_id, transcript: message.transcript }, 'Rejected likely transcription hallucination');
+            if (message.item_id && openAiWs?.readyState === WebSocket.OPEN) {
+              openAiWs.send(JSON.stringify({
+                type: 'conversation.item.delete',
+                item_id: message.item_id
+              }));
+            }
+            break;
+          }
+
+          latestUserTurn++;
+          conversationLanguage.observe(message.transcript);
+
+          if (requestsHumanAgent(message.transcript)) {
+            escalationState = 'consented';
+          } else if (escalationState === 'offered') {
+            escalationState = isAffirmativeResponse(message.transcript) ? 'consented' : 'none';
+          } else if (escalationState === 'consented') {
+            escalationState = 'none';
+          }
+
+          const stationMention = extractStationMention(message.transcript);
+          if (stationMention && stationMention.toLowerCase() !== currentStationMention?.toLowerCase()) {
+            currentStationMention = stationMention;
+            stationRevision++;
+            if (callMemory?.updateStation) callMemory.updateStation(stationMention);
+            logger.info(`Station context changed to "${stationMention}" (revision ${stationRevision})`);
+          }
+
           logger.info(`User: ${message.transcript}`);
           if (chatwootLogger) {
             chatwootLogger.logUser(message.transcript);
@@ -603,77 +718,21 @@ export function handleTwilioWebSocket(connection, logger) {
           if (callMemory) {
             callMemory.addUserMessage(message.transcript);
           }
-          // Hesitation and repetition detection (Task 7)
-          const transcript = message.transcript.trim().toLowerCase();
-          lastUserMessages.push(transcript);
-          if (lastUserMessages.length > 3) lastUserMessages.shift();
-          // Check for hesitation fillers
-          const hesitationPatterns = [
-            /euh|euuuh|heu|hm|mmm/i,
-            /je sais pas|j'sais pas|je ne sais pas/i,
-            /j'comprends pas|je comprends pas|comprends rien/i,
-            /c'est compliqué|trop compliqué/i,
-            /j'ai du mal|j'y arrive pas/i,
-            /pouvez-vous répéter|vous pouvez répéter/i,
-            /excusez-moi|désolé.*comprends/i,
-          ];
-          const hasHesitation = hesitationPatterns.some(p => p.test(transcript));
-          // Check for repetition (same intent said twice)
-          let isRepeating = false;
-          if (lastUserMessages.length >= 2) {
-            const last = lastUserMessages[lastUserMessages.length - 1];
-            const prev = lastUserMessages[lastUserMessages.length - 2];
-            if (last && prev && last !== prev) {
-              const lastWords = new Set(last.split(/\s+/).filter(w => w.length > 3));
-              const prevWords = new Set(prev.split(/\s+/).filter(w => w.length > 3));
-              if (lastWords.size > 0 && prevWords.size > 0) {
-                let overlap = 0;
-                for (const w of lastWords) if (prevWords.has(w)) overlap++;
-                const ratio = overlap / Math.min(lastWords.size, prevWords.size);
-                if (ratio > 0.6 && lastWords.size > 1) isRepeating = true;
-              }
-            }
-          }
-          if (hasHesitation || isRepeating) {
-            const reason = hasHesitation ? 'hesitation' : 'repetition';
-            logger.info(`Detected user ${reason}: "${transcript.substring(0, 60)}"`);
-            if (openAiWs?.readyState === WebSocket.OPEN) {
-              openAiWs.send(JSON.stringify({
-                type: 'conversation.item.create',
-                item: {
-                  type: 'message',
-                  role: 'system',
-                  content: [{
-                    type: 'input_text',
-                    text: `[SYSTEM: Caller showed ${reason} ("${transcript.substring(0, 80)}"). Offer simplified help or human escalation if appropriate.]`
-                  }]
-                }
-              }));
-            }
-          }
-          // Classify until the first substantive intent is found. Discard results
-          // that finish after a newer caller turn has superseded them.
-          if (!hasClassifiedIntent) {
-            classifyIntent(message.transcript).then(result => {
-              if (userTurn !== latestUserTurn || hasClassifiedIntent) return;
-              logger.info(`Intent classified: ${result.intent} (confidence: ${result.confidence})`);
-              if (callMemory && result.intent !== 'other') {
-                callMemory.setIntent(result.intent);
-                if (result.slots.tenant) callMemory.setInfo('tenant', result.slots.tenant);
-                if (result.slots.station) callMemory.setInfo('station', result.slots.station);
-                if (result.slots.problem) callMemory.setInfo('problem', result.slots.problem);
-              }
-              if (result.confidence >= 0.5 && result.intent !== 'greeting' && result.intent !== 'other') {
-                hasClassifiedIntent = true;
-              }
-            }).catch(err => {
-              logger.error(`Intent classification failed: ${err.message}`);
+          if (needsLocationSms(message.transcript)) {
+            sendLocationSms().then(result => {
+              requestVoiceResponse(result.success
+                ? 'Dites uniquement : « Je viens de vous envoyer un SMS. Répondez-y avec votre adresse ou votre position. »'
+                : 'Dites uniquement : « Je n’ai pas pu envoyer le SMS. Pouvez-vous me donner une ville ou une adresse approximative ? »');
             });
+            break;
           }
 
-          if (callMemory && callMemory.shouldSummarize()) {
-            callMemory.markSummarized();
+          if (needsQrFallback(message.transcript)) {
+            requestVoiceResponse('Le client n’a ni application ni RFID. N’inventez aucune option invité ou paiement sans contact. Demandez uniquement le numéro du connecteur s’il manque; dès que la station et le connecteur sont connus, appelez generate_qr_code pour envoyer le lien par SMS.');
+            break;
           }
+
+          requestVoiceResponse();
         }
         break;
 
@@ -683,6 +742,13 @@ export function handleTwilioWebSocket(connection, logger) {
           code: message.error?.code,
           error: message.error?.message
         }, 'Caller transcription failed');
+        if (message.item_id && openAiWs?.readyState === WebSocket.OPEN) {
+          openAiWs.send(JSON.stringify({
+            type: 'conversation.item.delete',
+            item_id: message.item_id
+          }));
+        }
+        requestVoiceResponse('Dites uniquement : « Je vous entends mal, pouvez-vous répéter ? »');
         break;
 
       case 'response.output_audio_transcript.delta':
@@ -700,6 +766,7 @@ export function handleTwilioWebSocket(connection, logger) {
         break;
 
       case 'response.done':
+        azureResponseActive = false;
         console.log('DEBUG: response.done event received');
         console.log('DEBUG: message.response?.output:', JSON.stringify(message.response?.output, null, 2));
 
@@ -738,9 +805,12 @@ export function handleTwilioWebSocket(connection, logger) {
           });
         }
         if (toolCallBuffer.length > 0) {
+          queuedResponseInstruction = null;
           flushToolCallBuffer().catch(error => {
             logger.error(`Failed to flush tool calls: ${error.message}`);
           });
+        } else {
+          drainQueuedResponse();
         }
         break;
 
@@ -756,12 +826,18 @@ export function handleTwilioWebSocket(connection, logger) {
           toolCallBuffer.push({
             name: message.name,
             arguments: message.arguments,
-            call_id: message.call_id
+            call_id: message.call_id,
+            userTurn: latestUserTurn,
+            stationRevision
           });
         }
         break;
 
       case 'error':
+        if (/cancellation failed: no active response/i.test(message.error?.message || '')) {
+          azureResponseActive = false;
+          break;
+        }
         logger.error({ 
           error: message.error,
           type: message.error?.type,
@@ -779,7 +855,10 @@ export function handleTwilioWebSocket(connection, logger) {
 
   // Send initial greeting to start conversation
   const sendInitialGreeting = () => {
-    openAiWs.send(JSON.stringify(createVoiceResponseEvent()));
+    const greetingInstruction = callerContext?.name
+      ? `Saluez brièvement ${callerContext.name} en français, présentez-vous comme Eva du service client ev24, puis demandez comment aider aujourd'hui. Ne mentionnez aucun ancien problème.`
+      : 'Saluez brièvement en français, présentez-vous comme Eva du service client ev24, puis demandez comment aider. Ne demandez ni nom ni numéro client.';
+    requestVoiceResponse(greetingInstruction);
     logger.info('Initial greeting triggered');
   };
 
@@ -872,6 +951,11 @@ export function handleTwilioWebSocket(connection, logger) {
 
         case 'mark':
           if (pendingPlaybackMark && message.mark?.name === pendingPlaybackMark) {
+            const playedItemId = currentAssistantItemId;
+            if (playedItemId && pendingAssistantTranscripts.has(playedItemId)) {
+              commitAssistantTranscript(pendingAssistantTranscripts.get(playedItemId), playedItemId);
+              pendingAssistantTranscripts.delete(playedItemId);
+            }
             waitingForPlaybackDrain = false;
             isResponseActive = false;
             echoCooldownUntil = Date.now() + ECHO_COOLDOWN_MS;
@@ -880,13 +964,11 @@ export function handleTwilioWebSocket(connection, logger) {
             currentResponseId = null;
             responseStartMediaTimestamp = null;
             logger.info('Twilio playback mark received; response considered fully played');
-            startSilenceTimer();
           }
           break;
 
         case 'stop':
           logger.info('Twilio stream stopped');
-          cancelSilenceTimer();
           break;
 
         default:
@@ -900,7 +982,6 @@ export function handleTwilioWebSocket(connection, logger) {
   // Handle Twilio WebSocket close
   connection.socket.on('close', async () => {
     logger.info('Twilio WebSocket closed');
-    cancelSilenceTimer();
     toolCallBuffer = [];
     
     // Save conversation context for future calls
@@ -954,7 +1035,9 @@ export function injectLocation(phone, { station, address, distance, coordinates 
       }]
     }
   }));
-  session.openAiWs.send(JSON.stringify({ type: 'response.create' }));
+  if (session.onLocationInjected) {
+    session.onLocationInjected({ station, address, distance, coordinates });
+  }
   removeSession(phone);
   return { success: true };
 }

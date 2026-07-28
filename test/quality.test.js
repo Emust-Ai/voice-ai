@@ -12,17 +12,26 @@ import { parseLocation } from '../src/services/openChargeMapService.js';
 import { buildQrRequestKey, extractQrCodeUrl, sendQrCodeSms } from '../src/services/qrCodeService.js';
 import { executeN8nTool } from '../src/services/n8nService.js';
 import { TOOLS, TOOL_ENDPOINTS } from '../src/config/tools.js';
+import {
+  ConversationLanguage,
+  createLanguageResponseEvent,
+  extractStationMention,
+  isAffirmativeResponse,
+  isLikelyTranscriptHallucination,
+  needsLocationSms,
+  needsQrFallback,
+  requestsHumanAgent
+} from '../src/services/conversationQuality.js';
+import { buildChatwootTranscriptMessage } from '../src/services/chatwootLogger.js';
 
-test('transcription uses automatic bilingual detection with relevant context', () => {
+test('transcription uses French without keyword prompt steering', () => {
   const previousDeployment = process.env.AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT;
   process.env.AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT = 'ev24-transcribe';
-  const config = createTranscriptionConfig({ tenant: 'borneco' });
+  const config = createTranscriptionConfig();
 
-  assert.equal(config.language, undefined);
+  assert.equal(config.language, 'fr');
   assert.equal(config.model, 'ev24-transcribe');
-  assert.match(config.prompt, /French or Arabic/);
-  assert.match(config.prompt, /borneco/);
-  assert.match(config.prompt, /station names/);
+  assert.equal(config.prompt, undefined);
 
   if (previousDeployment === undefined) {
     delete process.env.AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT;
@@ -47,12 +56,13 @@ test('transcription defaults to the high-accuracy deployment name', () => {
   }
 });
 
-test('realtime Whisper avoids unsupported prompt steering', () => {
+test('realtime Whisper also stays in French without prompt steering', () => {
   const previousDeployment = process.env.AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT;
   process.env.AZURE_OPENAI_TRANSCRIPTION_DEPLOYMENT = 'ev24-gpt-realtime-whisper';
 
   assert.deepEqual(createTranscriptionConfig(), {
-    model: 'ev24-gpt-realtime-whisper'
+    model: 'ev24-gpt-realtime-whisper',
+    language: 'fr'
   });
 
   if (previousDeployment === undefined) {
@@ -66,7 +76,7 @@ test('phone VAD retains word beginnings and responds promptly', () => {
   assert.equal(OPENAI_CONFIG.turn_detection.threshold, 0.5);
   assert.equal(OPENAI_CONFIG.turn_detection.prefix_padding_ms, 500);
   assert.equal(OPENAI_CONFIG.turn_detection.silence_duration_ms, 650);
-  assert.ok(OPENAI_CONFIG.max_response_output_tokens <= 300);
+  assert.ok(OPENAI_CONFIG.max_response_output_tokens <= 250);
 });
 
 test('pure Arabic speech is detected as Arabic', () => {
@@ -81,8 +91,9 @@ test('agent identity and new-caller greeting are consistent', () => {
   const callerPrompt = generateCallerContextPrompt(null);
 
   assert.match(VOICE_AGENT_INSTRUCTIONS, /Vous êtes Eva/);
-  assert.match(callerPrompt, /Ici Eva/);
-  assert.match(callerPrompt, /help immediately/);
+  assert.match(VOICE_AGENT_INSTRUCTIONS, /N'exigez ni nom ni numéro client au début/);
+  assert.match(callerPrompt, /Nom inconnu/);
+  assert.match(callerPrompt, /aidez d’abord/);
 });
 
 test('text locations remain unverified until a station lookup', () => {
@@ -187,4 +198,81 @@ test('QR delivery key distinguishes corrected station or connector details', () 
 
   assert.equal(original, sameNormalized);
   assert.notEqual(original, correctedConnector);
+});
+
+test('subtitle and video-outro hallucinations are rejected', () => {
+  const hallucinations = [
+    'Les liens sont dans la description.',
+    'Sous-titres réalisés par la communauté d’Amara.org',
+    'Merci d’avoir regardé cette vidéo !',
+    'Réalisé par Neo035',
+    'Noms importants.'
+    ,'โปรดติดตามตอนต่อไป',
+    "Keep doing what you're doing."
+  ];
+
+  for (const transcript of hallucinations) {
+    assert.equal(isLikelyTranscriptHallucination(transcript), true, transcript);
+  }
+  assert.equal(isLikelyTranscriptHallucination('La station Opalion 1 ne fonctionne pas.'), false);
+});
+
+test('unknown location immediately selects the SMS location fallback', () => {
+  assert.equal(needsLocationSms('Je ne sais pas où je suis.'), true);
+  assert.equal(needsLocationSms('Je ne vois rien autour de moi.'), true);
+  assert.equal(needsLocationSms("J'ai aucune idée."), true);
+  assert.equal(needsLocationSms('La station s’appelle Opalion 1.'), false);
+});
+
+test('missing app and RFID selects the QR fallback', () => {
+  assert.equal(needsQrFallback("Je n'ai pas l'application mobile ou un RFID."), true);
+  assert.equal(needsQrFallback("J'ai pas l'application mobile ou un RFID."), true);
+  assert.equal(needsQrFallback("Je n'ai pas l'application mais j'ai une carte RFID."), false);
+});
+
+test('French remains locked through short and ambiguous turns', () => {
+  const language = new ConversationLanguage('fr');
+
+  assert.equal(language.observe('Non.'), 'fr');
+  assert.equal(language.observe('Opalion 1'), 'fr');
+  assert.equal(language.observe('Please check this charging station for me.'), 'fr');
+  assert.equal(language.observe('The charger still does not work with my card.'), 'en');
+});
+
+test('response creation always carries the server language instruction', () => {
+  const event = createLanguageResponseEvent('fr', 'Annoncez le résultat de l’outil.');
+
+  assert.equal(event.type, 'response.create');
+  assert.match(event.response.instructions, /uniquement en français/);
+  assert.match(event.response.instructions, /Annoncez le résultat/);
+});
+
+test('station corrections and escalation consent are recognized', () => {
+  assert.equal(extractStationMention('Il y a une autre station appelée Opalion 1.'), 'Opalion 1');
+  assert.equal(requestsHumanAgent('Je veux parler à un agent humain.'), true);
+  assert.equal(isAffirmativeResponse('Oui.'), true);
+  assert.equal(isAffirmativeResponse('Il y a une autre station appelée Opalion 1.'), false);
+});
+
+test('station changes clear station-dependent call memory', () => {
+  const memory = new CallMemory('station-change');
+  memory.setInfo('station', 'Recharge Station 1');
+  memory.setInfo('station_id', 'old-id');
+  memory.setInfo('station_status', 'operative');
+  memory.setInfo('connector_id', '1');
+
+  memory.updateStation('Opalion 1');
+
+  assert.equal(memory.getInfo('station'), 'Opalion 1');
+  assert.equal(memory.getInfo('station_id'), undefined);
+  assert.equal(memory.getInfo('station_status'), undefined);
+  assert.equal(memory.getInfo('connector_id'), undefined);
+});
+
+test('Chatwoot transcript archive messages are private', () => {
+  const payload = buildChatwootTranscriptMessage({ role: 'user', text: 'Bonjour' });
+
+  assert.equal(payload.private, true);
+  assert.equal(payload.message_type, 'outgoing');
+  assert.match(payload.content, /^\[VOICE USER\]/);
 });

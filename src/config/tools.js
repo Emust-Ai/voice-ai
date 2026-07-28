@@ -273,7 +273,7 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'priority',
-    description: 'Request a callback from a human agent. Use when user requests human support or when workflows fail. IMPORTANT: After calling this tool, inform the user that human agents are available Monday to Friday from 9h00 to 17h00 (excluding weekends), and that a human agent will contact them back during these working hours. Then ask if there is anything else you can help with, and say goodbye politely when they are done.',
+    description: 'Request a callback from a human agent. Call this only after the caller explicitly asks for a human or clearly accepts Eva\'s immediately preceding callback offer. A station name, address, complaint, silence, or failed workflow is not consent. After success, state the Monday-Friday 9h00-17h00 callback hours and close briefly.',
     parameters: {
       type: 'object',
       properties: {
@@ -323,7 +323,7 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'save_caller_info',
-    description: 'Save caller reference info for future calls. You can save caller_name, caller_phone, or both. For CPO relayed calls (e.g., BornEco), call this as soon as you get the END CLIENT phone number so we anchor future context and Chatwoot on the client number, not the CPO line.',
+    description: 'Save caller reference info for future calls. You can save caller_name, caller_phone, or both. Never collect caller_name during the greeting or first turn; ask naturally mid-conversation after useful help has started. For CPO relayed calls (e.g., BornEco), save the END CLIENT phone number when provided so context and Chatwoot are anchored on the client number, not the CPO line.',
     parameters: {
       type: 'object',
       properties: {
@@ -341,7 +341,7 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'request_location_tool',
-    description: 'Send SMS to caller asking for their location (address or GPS coordinates). Use ONLY when the caller wants to find the nearest charging station but does NOT know their address or current location. After calling this tool, tell the caller to check their phone and reply with their location.',
+    description: 'Send an SMS asking the caller for their address or GPS position. Use this immediately whenever the caller says they do not know where they are, cannot identify the station, cannot see a landmark, or says they are lost. Do not ask for another station name first. After calling it, tell the caller to reply to the SMS with their location.',
     parameters: {
       type: 'object',
       properties: {

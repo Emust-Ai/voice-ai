@@ -15,8 +15,8 @@ const KNOWN_CALLERS = {
   '+33644643789': {
     name: null,
     tenant: 'borneco',
-    callerType: 'cpo',
-    label: 'cpo-borneco',
+    callerType: 'customer',
+    label: 'customer-borneco',
   },
 };
 
@@ -205,6 +205,20 @@ function createEmptyContext(normalizedPhone, defaultName = null) {
  * Returns a string to prepend/append to the main system prompt.
  */
 export function generateCallerContextPrompt(callerContext) {
+  const conciseLines = ['CONTEXTE APPELANT'];
+  if (callerContext?.tenant) {
+    conciseLines.push(`- Tenant connu : ${callerContext.tenant}. Utilisez-le directement; ne redemandez pas le réseau.`);
+  }
+  if (callerContext?.name) {
+    conciseLines.push(`- Prénom connu : ${callerContext.name}. Saluez brièvement sans raconter les anciens appels.`);
+  } else {
+    conciseLines.push('- Nom inconnu. Ne le demandez pas au début; aidez d’abord le client.');
+  }
+  conciseLines.push('- Utilisez le numéro Twilio actuel. Ne demandez pas de numéro client sauf si le client appelle pour une autre personne.');
+  return conciseLines.join('\n');
+
+  /* Legacy detailed context kept below for reference; the concise return above
+     intentionally prevents it from reaching the realtime model. */
   // Known caller with auto-tenant but no name — skip the name question
   if (callerContext?.tenant && !callerContext.name) {
     const lines = [];
@@ -212,16 +226,13 @@ export function generateCallerContextPrompt(callerContext) {
     lines.push(`This caller has a pre-assigned tenant: **${callerContext.tenant}**`);
     lines.push(`- **DO NOT use the \`tenant_find\` tool for this caller.** Always use tenant = "${callerContext.tenant}" directly in ALL tool calls.`);
     lines.push(`- When the caller mentions a station or location, skip tenant identification and go straight to \`station_verification\` (or other tools) with tenant = "${callerContext.tenant}".`);
-    if (callerContext.callerType === 'cpo') {
-      lines.push(`- This is a known CPO caller profile. Mention the tenant naturally when greeting (e.g., "support ev24 pour BornEco").`);
-      lines.push(`- EARLY IN THE CALL, ask for the END CLIENT phone number first and call \`save_caller_info\` with \`caller_phone\` immediately.`);
-      lines.push(`- If they also share the client name, call \`save_caller_info\` again with \`caller_phone\` + \`caller_name\` to update the same profile.`);
-      lines.push(`- After saving client number, run \`user_management\` with tenant = "${callerContext.tenant}" when account verification is needed.`);
-    }
+    lines.push(`- This is a direct BornEco customer. Use the Twilio caller number already available; do not ask for a client number at the start.`);
     lines.push('');
     lines.push(`### Caller Context`);
     lines.push(`This is a known caller but we do not have their personal name on file.`);
-    lines.push(`- Example greeting: "Bonjour ! Ici Eva, du service client ev24${callerContext.callerType === 'cpo' ? ' pour BornEco' : ''}. Puis-je avoir le numéro du client concerné ?"`);
+    lines.push(`- Do not ask for their name in the greeting or first turn. Start by listening, acknowledging frustration, and helping with the immediate issue.`);
+    lines.push(`- Example greeting: "Bonjour ! Ici Eva, du service client ev24 pour BornEco. Comment puis-je vous aider ?"`);
+    lines.push(`- Ask for their name only mid-conversation, after useful help has started and the caller is no longer in an urgent or frustrated moment.`);
     lines.push(`- As soon as they provide the client number, call the \`save_caller_info\` tool with \`caller_phone\` so future calls are anchored on the end client.`);
     lines.push(`- If they give the client name too, call \`save_caller_info\` again with both \`caller_phone\` and \`caller_name\`.`);
     lines.push(`- Proceed directly to helping them with their request.`);
@@ -234,8 +245,11 @@ export function generateCallerContextPrompt(callerContext) {
 ### Caller Context
 This is a NEW caller whose phone number is not yet in our system.
 - Greet them with: "Bonjour ! Ici Eva, du service client ev24. Comment puis-je vous aider aujourd'hui ?"
-- If they describe a problem, help immediately. Never delay support just to collect their name.
-- Ask for their first name later, when it is naturally useful for account lookup or follow-up.
+- Never ask for their name in the greeting, first turn, or before acknowledging their problem.
+- If they sound frustrated, acknowledge it and help immediately. Never delay support just to collect their name.
+- Ask for their first name only mid-conversation, after at least two useful exchanges or when account lookup/follow-up makes it naturally relevant.
+- If they remain frustrated, rushed, or stuck at the charger, postpone the name question until there is concrete progress. Skip it entirely if it is not useful.
+- Ask gently: "Pour que je puisse mieux vous accompagner, comment puis-je vous appeler ?" Never insist.
 - When they give their name, call the \`save_caller_info\` tool once and continue from the current step.
 `;
   }
@@ -299,17 +313,10 @@ This is a NEW caller whose phone number is not yet in our system.
 
   lines.push('');
   lines.push(`**IMPORTANT — Personalized greeting instructions:**`);
-  lines.push(`Since this is a returning caller, you MUST personalize your initial greeting. Do NOT use the standard generic greeting.`);
-  lines.push(`- Greet them BY NAME warmly: "Bonjour ${callerContext.name} ! Ici Eva, du service client ev24. Ravie de vous retrouver !"`);
-  
-  if (callerContext.lastProblem) {
-    lines.push(`- Then naturally reference their last interaction. Pick ONE of these approaches depending on context:`);
-    lines.push(`  • If the issue was resolved: "La dernière fois, on avait réglé [brief reference to problem]. J'espère que tout fonctionne bien depuis ! Comment est-ce que je peux vous aider aujourd'hui ?"`);
-    lines.push(`  • If the issue was NOT resolved: "La dernière fois, vous aviez eu [brief reference to problem] et on n'avait pas pu tout régler. Est-ce que c'est à ce sujet que vous appelez, ou c'est pour autre chose ?"`);
-    lines.push(`  • If it's been a while: "Ça fait un petit moment qu'on ne s'est pas parlé ! La dernière fois c'était pour [brief reference]. Comment ça va depuis ? Qu'est-ce que je peux faire pour vous aujourd'hui ?"`);
-  } else {
-    lines.push(`- Then ask how you can help today: "Comment est-ce que je peux vous aider aujourd'hui ?"`);
-  }
+  lines.push(`Use a short greeting and listen to today's issue before mentioning history.`);
+  lines.push(`- Greet them BY NAME: "Bonjour ${callerContext.name}, ici Eva du service client ev24. Comment puis-je vous aider aujourd'hui ?"`);
+  lines.push(`- Do not call them confused, lost, or frustrated, and do not mention an old unresolved issue in the greeting.`);
+  lines.push(`- Reference previous history only after the caller confirms today's issue is related.`);
 
   lines.push('');
   lines.push(`**Behavioral rules for returning callers:**`);
