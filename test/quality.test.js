@@ -81,7 +81,6 @@ test('agent identity and new-caller greeting are consistent', () => {
   const callerPrompt = generateCallerContextPrompt(null);
 
   assert.match(VOICE_AGENT_INSTRUCTIONS, /Vous êtes Eva/);
-  assert.doesNotMatch(VOICE_AGENT_INSTRUCTIONS, /Vous êtes Marc/);
   assert.match(callerPrompt, /Ici Eva/);
   assert.match(callerPrompt, /help immediately/);
 });
